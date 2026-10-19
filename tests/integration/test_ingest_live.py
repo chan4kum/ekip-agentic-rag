@@ -27,9 +27,9 @@ HTML = (
 
 
 @pytest.fixture
-async def rig() -> AsyncIterator[
-    tuple[IngestDocument, OpenSearchChunkIndex, PostgresDocumentRepository]
-]:
+async def rig(
+    migrated: None,
+) -> AsyncIterator[tuple[IngestDocument, OpenSearchChunkIndex, PostgresDocumentRepository]]:
     s = Settings()
     pool = await create_pool(str(s.database_url))
     repo = PostgresDocumentRepository(pool)

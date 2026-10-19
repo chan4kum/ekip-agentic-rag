@@ -6,8 +6,6 @@ Compose stack (migrations are applied first). A behaviour difference between the
 
 import asyncio
 import os
-import subprocess
-import sys
 import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
@@ -33,7 +31,6 @@ from ekip_contracts.documents import (
     sha256_hex,
 )
 from ekip_persistence import InMemoryDocumentRepository, PostgresDocumentRepository, create_pool
-from tests_paths import ROOT
 
 
 class Repo(DocumentRepository, AssetRepository, Protocol):
@@ -44,28 +41,6 @@ LIVE = os.environ.get("RUN_INTEGRATION") == "1"
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://ekip:ekip@localhost:5432/ekip")
 S = DocumentStatus
 NOW = datetime(2026, 10, 19, 6, 30, tzinfo=UTC)
-
-
-@pytest.fixture(scope="session")
-def migrated() -> None:
-    if not LIVE:
-        return
-    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        [
-            sys.executable,
-            "-m",
-            "alembic",
-            "-c",
-            str(ROOT / "packages/persistence/alembic.ini"),
-            "upgrade",
-            "head",
-        ],
-        env={**os.environ, "DATABASE_URL": DATABASE_URL},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 @pytest.fixture(params=["memory", pytest.param("postgres", marks=pytest.mark.integration)])
