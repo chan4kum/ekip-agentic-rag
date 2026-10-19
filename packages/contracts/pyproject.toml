@@ -1,0 +1,10 @@
+[project]
+name = "ekip-contracts"
+version = "0.1.0"
+description = "Shared, versioned contracts and ports for EKIP"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.8"]
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

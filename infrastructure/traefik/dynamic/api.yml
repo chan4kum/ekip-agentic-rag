@@ -1,0 +1,61 @@
+http:
+  routers:
+    api:
+      entryPoints: [web]
+      rule: "PathPrefix(`/api/`) || Path(`/health`)"
+      service: api
+      # order matters: cheap rejections first, retry closest to the service
+      middlewares: [secure-headers, rate-limit, in-flight, body-limit, circuit-breaker, retry]
+
+  services:
+    api:
+      loadBalancer:
+        serversTransport: api-transport
+        servers:
+          - url: "http://api:8000"
+
+  serversTransports:
+    api-transport:
+      forwardingTimeouts:
+        dialTimeout: 5s
+        responseHeaderTimeout: 60s
+        idleConnTimeout: 90s
+
+  middlewares:
+    secure-headers:
+      headers:
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: "no-referrer"
+        contentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'"
+        customResponseHeaders:
+          Server: ""
+          X-Powered-By: ""
+    body-limit:
+      buffering:
+        maxRequestBodyBytes: 1048576 # 1 MiB; 413 if exceeded
+    rate-limit:
+      rateLimit:
+        average: 50
+        period: 1s
+        burst: 100
+    in-flight:
+      inFlightReq:
+        amount: 50 # per client IP; open SSE streams hold slots (revisit in Gate 2.7)
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+    circuit-breaker:
+      circuitBreaker:
+        # DRAFT thresholds, tuned under load in Phase 11
+        expression: "NetworkErrorRatio() > 0.30 || ResponseCodeRatio(500, 600, 0, 600) > 0.50"
+        checkPeriod: 100ms
+        fallbackDuration: 10s
+        recoveryDuration: 10s
+        responseCode: 503
+    retry:
+      retry:
+        attempts: 2
+        initialInterval: 100ms
+        maxRequestBodyBytes: 1048576 # same as body-limit
+        # deliberately NO `status` (5xx is never retried) and NO retryNonIdempotentMethod

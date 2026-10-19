@@ -1,0 +1,35 @@
+entryPoints:
+  web:
+    address: ":8080"
+    forwardedHeaders:
+      insecure: false # untrusted X-Forwarded-* from clients is discarded
+    transport:
+      respondingTimeouts:
+        readTimeout: 30s
+        idleTimeout: 120s
+  ping:
+    address: ":8082" # internal health endpoint, not published
+
+ping:
+  entryPoint: ping
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic # NOT the Docker provider (no docker.sock)
+    watch: true
+
+api:
+  dashboard: false
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+  fields:
+    headers:
+      defaultMode: drop # never log Authorization / Cookie (I-8)
+      names:
+        X-Request-Id: keep
+        User-Agent: keep

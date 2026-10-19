@@ -1,0 +1,21 @@
+# environments
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# caches
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS / editor
+.DS_Store
+.write_test
+.idea/
+.vscode/

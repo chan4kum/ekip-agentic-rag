@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read # least privilege: the workflow can only read the repo
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.12.13"
+          enable-cache: true
+      - name: Install (fails if uv.lock is out of date)
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Types
+        run: uv run mypy packages apps tests
+      - name: Architecture rules (ADR-001)
+        run: uv run lint-imports
+      - name: Tests
+        run: uv run pytest -q -W error
+
+  stack:
+    # Live Docker Compose smoke test: catches problems unit tests cannot (e.g. a broken image)
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.12.13"
+          enable-cache: true
+      - name: Validate Compose file
+        run: docker compose config -q
+      - name: Start the stack
+        run: docker compose up -d --build --wait
+      - name: Smoke test
+        run: bash scripts/smoke.sh
+      - name: Integration tests (live services)
+        run: RUN_INTEGRATION=1 uv run pytest tests/integration -q -W error
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

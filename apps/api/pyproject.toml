@@ -1,0 +1,25 @@
+[project]
+name = "ekip-api"
+version = "0.1.0"
+description = "EKIP HTTP API (FastAPI)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "ekip-config",
+    "ekip-observability",
+    "ekip-contracts",
+    "asyncpg>=0.32.0",
+    "redis>=8.1.0",
+    "httpx>=0.28.1",
+    "opentelemetry-instrumentation-fastapi>=0.66b1,<0.67",
+]
+
+[tool.uv.sources]
+ekip-config = { workspace = true }
+ekip-observability = { workspace = true }
+ekip-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

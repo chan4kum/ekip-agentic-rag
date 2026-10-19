@@ -1,0 +1,14 @@
+[project]
+name = "ekip-observability"
+version = "0.1.0"
+description = "Structured logging and request context for EKIP"
+requires-python = ">=3.12"
+dependencies = [
+    "opentelemetry-api>=1.45,<1.46",
+    "opentelemetry-sdk>=1.45,<1.46",
+    "structlog>=24.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

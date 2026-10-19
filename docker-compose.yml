@@ -1,0 +1,139 @@
+name: ekip
+
+services:
+  postgres:
+    image: postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ekip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ekip}
+      POSTGRES_DB: ${POSTGRES_DB:-ekip}
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"] # override if 5432 is taken
+    networks: [app, dev]
+    volumes: ["pg_data:/var/lib/postgresql"] # PG18 images expect the parent dir
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"] # cache only, no persistence
+    ports: ["127.0.0.1:6379:6379"]
+    networks: [app, dev]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  opensearch:
+    image: opensearchproject/opensearch:3.9.0@sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true" # LOCAL DEV ONLY
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports: ["127.0.0.1:9200:9200"]
+    networks: [app, dev]
+    volumes: ["os_data:/usr/share/opensearch/data"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
+    environment: # only what the API needs, not the whole .env
+      APP_ENV: ${APP_ENV:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ekip}:${POSTGRES_PASSWORD:-ekip}@postgres:5432/${POSTGRES_DB:-ekip}
+      REDIS_URL: redis://redis:6379/0
+      OPENSEARCH_URL: http://opensearch:9200
+      FORWARDED_ALLOW_IPS: 172.28.1.10 # trust client IP only from Traefik
+      TRACING_EXPORTER: ${TRACING_EXPORTER:-none} # set to 'console' to print spans
+      HTTPS_PROXY: http://squid:3128 # outbound HTTPS only via the allowlist proxy
+      NO_PROXY: postgres,redis,opensearch,localhost,127.0.0.1
+    depends_on:
+      squid: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      opensearch: { condition: service_healthy }
+    networks: [app] # private, no internet access
+    read_only: true # root filesystem is immutable
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"] # no Linux capabilities
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  squid:
+    image: ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c # edge build: review digest bumps
+    restart: unless-stopped
+    user: "13:13" # the image's non-root 'proxy' user
+    entrypoint: ["squid", "-N", "-f", "/etc/squid/squid.conf"]
+    volumes: ["./infrastructure/squid/squid.conf:/etc/squid/squid.conf:ro"]
+    networks:
+      app: { ipv4_address: 172.28.1.20 }
+      egress: {} # the only non-internal path to the internet
+    read_only: true
+    tmpfs: ["/var/run", "/var/log/squid", "/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/3128'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  traefik:
+    image: traefik:v3.7.15@sha256:0f6150202bc1fed72a7bd2107460eaa510e5b8a905f3fdb5b84f2c8619c33368
+    restart: unless-stopped
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    user: "65534:65534" # nobody, not root
+    volumes: ["./infrastructure/traefik:/etc/traefik:ro"]
+    ports: ["127.0.0.1:8080:8080"] # the ONLY app-facing published port
+    networks:
+      edge: {}
+      app: { ipv4_address: 172.28.1.10 }
+    depends_on:
+      api: { condition: service_healthy }
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+networks:
+  edge: {} # Traefik only; the one with a published port
+  egress: {} # Squid only; outbound internet for allowlisted hosts
+  app: # private: no internet access at all
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.28.1.0/24
+  dev: {} # DEV ONLY: lets databases publish 127.0.0.1 ports for local tools
+
+volumes:
+  pg_data:
+  os_data:

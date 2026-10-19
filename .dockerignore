@@ -1,0 +1,23 @@
+# secrets: never bake into an image (I-8)
+.env
+.env.*
+!.env.example
+
+# VCS, environments, caches
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+
+# not needed at runtime
+tests
+docs
+infrastructure
+*.md
+.DS_Store

@@ -1,0 +1,102 @@
+[project]
+name = "ekip"
+version = "0.1.0"
+description = "Enterprise Knowledge Intelligence Platform: agentic RAG"
+requires-python = ">=3.12,<3.13"
+dependencies = ["ekip-config", "ekip-observability", "ekip-contracts", "ekip-api"]         # workspace packages / runtime deps are added per step
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=5",
+  "ruff>=0.6",                          # linter + formatter
+  "mypy>=1.11",                         # static type checker
+  "import-linter>=2.0",                 # enforces ADR-001 import rules
+  "httpx>=0.27",                        # async test client for the API
+  "pyyaml>=6",                          # parse docker-compose.yml in infra guard tests
+  "types-pyyaml>=6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["docs"]               # docs hold illustrative snippets, not project code
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "S"]
+# E/F errors · I import order · B bugbear · UP modern syntax
+# SIM simplify · ASYNC async mistakes · S security (bandit)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]                   # asserts are fine in tests
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "packages/config/src:packages/observability/src:packages/contracts/src:apps/api/src"
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = ["integration: needs the live Docker Compose stack (set RUN_INTEGRATION=1)"]
+testpaths = ["tests"]
+
+[tool.uv.workspace]
+members = [
+    "packages/config",
+    "packages/observability",
+    "apps/api",
+    "packages/contracts",
+]
+
+[tool.uv.sources]
+ekip-config = { workspace = true }
+ekip-observability = { workspace = true }
+ekip-contracts = { workspace = true }
+ekip-api = { workspace = true }
+
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true # asyncpg ships no type stubs
+
+# ---- Architecture rules (ADR-001); enforced in CI via `uv run lint-imports` ----
+[tool.importlinter]
+root_packages = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_api"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Shared packages never import apps"
+type = "forbidden"
+source_modules = ["ekip_config", "ekip_observability", "ekip_contracts"]
+forbidden_modules = ["ekip_api"]
+
+[[tool.importlinter.contracts]]
+name = "Contracts depend on nothing else in the repo"
+type = "forbidden"
+source_modules = ["ekip_contracts"]
+forbidden_modules = ["ekip_api", "ekip_config", "ekip_observability"]
+
+[[tool.importlinter.contracts]]
+name = "Services and contracts never import infrastructure SDKs"
+type = "forbidden"
+source_modules = ["ekip_api.services", "ekip_contracts"]
+forbidden_modules = ["asyncpg", "redis", "httpx", "opensearchpy", "openai"]
+
+[[tool.importlinter.contracts]]
+name = "Services see ports, never adapters"
+type = "forbidden"
+source_modules = ["ekip_api.services"]
+forbidden_modules = ["ekip_api.adapters"]
+
+[[tool.importlinter.contracts]]
+name = "API layers point one way"
+type = "layers"
+layers = [
+  "ekip_api.main",
+  "ekip_api.routes",
+  "ekip_api.dependencies",
+  "ekip_api.services",
+  "ekip_api.schemas",
+]

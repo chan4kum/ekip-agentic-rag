@@ -1,0 +1,10 @@
+[project]
+name = "ekip-config"
+version = "0.1.0"
+description = "Typed, validated application settings for EKIP"
+requires-python = ">=3.12"
+dependencies = ["pydantic-settings>=2.5"]
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
