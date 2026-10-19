@@ -41,7 +41,7 @@ Cross-cutting: OpenTelemetry · Langfuse · Prometheus/Grafana · Terraform · K
 | 0 | Architecture decisions, security invariants | Done |
 | 1 | Foundation: toolchain, FastAPI, config, structured logging, tracing, hardened Docker Compose (reverse proxy, egress proxy), CI | Done |
 | 2 | Identity and backend: OIDC/JWT validation (Keycloak), tenant isolation, RBAC, Redis rate limits, RFC 9457 errors, deadlines, idempotency, SSE chat, security regression suite | Done |
-| 3 | Single-document ingestion: parse, chunk, embed, index | Planned |
+| 3 | Single-document ingestion: hardened parsers (text/HTML/PDF/DOCX, images), structure-aware chunking, Gemini embeddings with cache, OpenSearch hybrid index with ACL fields, resumable `IngestDocument` pipeline | Done |
 | 4 | Incremental ingestion: events, workflows, idempotency, deletes, ACL changes | Planned |
 | 5 | Retrieval: hybrid search, reranking, citations, evaluation harness | Planned |
 | 6 | Single-agent RAG with LangGraph and checkpoints | Planned |
@@ -59,7 +59,7 @@ docker compose up -d --build --wait && bash scripts/smoke.sh   # live stack + sm
 ```
 macOS note: if Python cannot import the workspace packages after `uv sync`, run `chflags -R nohidden .venv` (the OS `hidden` flag makes Python skip editable `.pth` files).
 
-## API surface (Phase 2)
+## API surface (Phase 2; no new routes in Phase 3)
 | Endpoint | Auth | Notes |
 |---|---|---|
 | `GET /health`, `GET /ready` | public | liveness / dependency readiness |
@@ -67,6 +67,14 @@ macOS note: if Python cannot import the workspace packages after `uv sync`, run 
 | `POST /api/v1/chat` | Bearer JWT | Server-Sent Events: `meta`, `token`, `citations`, `done`, `error`; own deadline and heartbeats |
 
 Security posture: RS256-only allowlist, JWKS cache with rotation, generic 401s, fail-closed authorization and rate limiting, problem+json errors. A route-inventory test fails any new route until it is classified public or protected, and every protected route is attacked with forged, expired, mis-audienced and tampered tokens (`tests/security`).
+
+## Ingestion pipeline (Phase 3)
+`submit` (raw bytes to the object store, version registered) then `run`: **parse → chunk → embed → index → INDEXED**, each stage persisted before the status advances.
+- **Parsers treat input as hostile:** size/page/zip-expansion limits, magic-byte checks, hidden HTML text dropped, no remote image fetches, generic parse errors.
+- **Chunking is deterministic (no LLM calls):** section-bounded, table/code aware, boilerplate stripped, stable chunk ids; images become searchable through an image chunk (caption + alt + OCR/description) with the bytes in the object store.
+- **Fewer model calls:** identical texts embedded once per call, batches of 100, cache keyed by (model version, task, text hash), so unchanged chunks and retries cost nothing.
+- **One index per embedding model version** (HNSW, cosine, Lucene engine) with tenant and ACL filters applied *during* vector search; an empty ACL matches nobody.
+- **Recoverable:** an embedding or index outage leaves the document `FAILED` with a fixed reason code and a `retryable` flag; the retry resumes without re-parsing or re-embedding. An older version can never overwrite a newer one.
 
 ## Repository layout
 ```

@@ -1,0 +1,19 @@
+[project]
+name = "ekip-ingestion"
+version = "0.1.0"
+description = "Document parsing, normalization and chunking for EKIP ingestion"
+requires-python = ">=3.12"
+dependencies = [
+    "ekip-contracts",
+    "pypdf>=5",
+    "python-docx>=1.1",
+    "beautifulsoup4>=4.12",
+    "pillow>=11",
+]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

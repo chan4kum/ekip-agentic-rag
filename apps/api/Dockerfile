@@ -13,6 +13,10 @@ COPY packages/contracts/pyproject.toml packages/contracts/pyproject.toml
 COPY packages/identity/pyproject.toml packages/identity/pyproject.toml
 COPY packages/authorization/pyproject.toml packages/authorization/pyproject.toml
 COPY packages/ratelimit/pyproject.toml packages/ratelimit/pyproject.toml
+COPY packages/persistence/pyproject.toml packages/persistence/pyproject.toml
+COPY packages/ingestion/pyproject.toml packages/ingestion/pyproject.toml
+COPY packages/llm-gateway/pyproject.toml packages/llm-gateway/pyproject.toml
+COPY packages/search/pyproject.toml packages/search/pyproject.toml
 RUN uv sync --frozen --no-dev --no-install-workspace --package ekip-api
 
 # Layer 2: our source code

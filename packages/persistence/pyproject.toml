@@ -1,0 +1,13 @@
+[project]
+name = "ekip-persistence"
+version = "0.1.0"
+description = "Postgres (and in-memory) persistence for EKIP documents and chunks, with Alembic migrations"
+requires-python = ">=3.12"
+dependencies = ["ekip-contracts", "asyncpg>=0.32.0", "alembic>=1.14", "sqlalchemy[asyncio]>=2.0"]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

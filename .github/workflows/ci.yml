@@ -57,7 +57,7 @@ jobs:
       - name: Smoke test
         run: bash scripts/smoke.sh
       - name: Integration tests (live services)
-        run: RUN_INTEGRATION=1 uv run pytest tests/integration -q -W error
+        run: RUN_INTEGRATION=1 uv run pytest tests/integration tests/contract -q -W error
       - name: Container logs (on failure)
         if: failure()
         run: docker compose logs --no-color

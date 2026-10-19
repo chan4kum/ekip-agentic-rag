@@ -1,0 +1,13 @@
+[project]
+name = "ekip-llm-gateway"
+version = "0.1.0"
+description = "Model provider adapters (embeddings now; chat later) behind EKIP ports"
+requires-python = ">=3.12"
+dependencies = ["ekip-contracts", "httpx>=0.28.1"]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

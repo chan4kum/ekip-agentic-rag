@@ -231,3 +231,103 @@ One entry per approved step: what we built, why, and gotchas.
 Request path now: Traefik (per-IP limits, body cap, security headers) -> request context (id on the ASGI scope) -> body limit -> deadline -> JWT validation (RS256 allowlist, cached JWKS, tenant claim required) -> RBAC with tenant check first -> per-user and per-tenant token bucket (Lua on Redis, fail closed) -> handler; errors are problem+json; SSE streams with heartbeats and cleanup on disconnect. Tenant identity never comes from the request, only from the verified token (I-4).
 - **Known gaps carried forward:** TLS/HSTS at the edge, per-IP limits behave globally behind NAT, SSE reconnect (`Last-Event-ID`), idempotency not yet mounted on a real POST route (first user: Phase 3 ingestion trigger), token/cost budgets for LLM calls (Phase 6/10), OpenFGA for document-level ACLs (Phase 4/5), Keycloak runs in `start-dev` locally.
 - **Next:** Phase 3, single-document ingestion (contracts, Postgres repositories with Alembic, object store, parser, chunker, embedder, OpenSearch indexer).
+
+## Gate 3.1 — Document, chunk and embedding contracts (2026-10-19)
+- **What:** `ekip_contracts.documents`: `Document` (one immutable VERSION of a source document), `DocumentAcl`, `Chunk`, `ChunkEmbedding`, `DocumentStatus`, and the derivation helpers `document_id_for`, `chunk_id_for`, `sha256_hex`. All frozen dataclasses that validate in the constructor, so an invalid object cannot exist downstream.
+- **Why these shapes:** (1) `document_id` = `doc_` + sha256 of the length-prefixed (tenant, source, source id): stable across re-syncs, tenant-namespaced (two tenants never collide, ids cannot be forged: a mismatching id is rejected), unambiguous at field boundaries. (2) `version` is OUR monotonic sequence per document (what Phase 4 compares to stop version 7 overwriting 8); `source_version` is whatever the source calls it. (3) `chunk_id` = `<document_id>:v<version>:c<ordinal>`, so versions coexist during safe publication; `content_hash` is the same for identical text across versions, which is what lets Phase 4 reuse embeddings. (4) Vectors live in `ChunkEmbedding`, tagged with `model_version` (e.g. `gemini-embedding-001@768`): vectors from different models are not comparable, so the tag lets us detect mixed generations. (5) ACL is fail-closed: empty means nobody, group names match exactly. (6) Only `INDEXED` versions are `is_searchable`.
+- **Verified:** 51 unit tests (derivation determinism, tenant and boundary collision cases, forged ids, tampered chunk text/ordinal, naive datetimes, NUL bytes, NaN/inf vectors, ACL matching). ruff, mypy, import-linter clean.
+- **Not done (by design):** persistence (3.2), raw-bytes storage (3.3), ACL ingestion from sources (Phase 4), per-tenant embedding-model registry (Phase 5).
+- **Next:** Gate 3.2 Postgres repositories with Alembic.
+
+## Gate 3.2 — Document repository: ports, in-memory twin, Postgres adapter, Alembic (2026-10-19)
+- **What:** `ekip_contracts.document_store` (the `DocumentRepository` port + `RepositoryError` family) and legal status transitions in `ekip_contracts.documents` (`can_transition`, `statuses_that_may_move_to`); new package `ekip_persistence` with `InMemoryDocumentRepository`, `PostgresDocumentRepository` (asyncpg) and Alembic migration `0001` (`documents`, `chunks`). `Document` gained `failure_reason`.
+- **Design points:**
+  - Every method takes `tenant_id` and every SQL statement filters on it; a row from another tenant looks exactly like a missing row (tested for get, latest_version, transition, replace_chunks, get_chunks).
+  - `register` is `INSERT .. ON CONFLICT DO NOTHING RETURNING`: the database decides who wins, a retry with identical input returns the stored row WITHOUT resetting its progress, different content for the same (document, version) is a `VersionConflictError`.
+  - `transition` is ONE statement, `UPDATE .. WHERE status = ANY(legal sources) RETURNING`: no read-then-write window. 10 workers racing for the same step: exactly 1 wins, 9 get `InvalidTransitionError` (tested on both adapters). A failed version may resume at any later stage (retry only indexing after good embeddings); INDEXED may only go to DELETED; DELETED is terminal.
+  - `replace_chunks` runs in a transaction behind `SELECT .. FOR UPDATE` on the version row, so a crash leaves no partial set and concurrent writers serialize (final state is one writer's complete set, never a mixture). Chunk sets of INDEXED/DELETED versions are frozen (`ImmutableVersionError`). A chunk from another tenant/version in the set rejects the whole call.
+  - The migration repeats the contract rules as CHECK constraints (tenant id format, `doc_` ids, sha256 hex, status values), a composite FK from chunks to documents with ON DELETE CASCADE, and indexes for source lookup, in-flight work and chunk-hash lookup (embedding reuse in Phase 4). A test proves the database itself refuses a malformed tenant id and an unknown status.
+  - Alembic reads `DATABASE_URL` (no credentials in files; refuses to fall back to the dev default when `APP_ENV=production`); migrations are frozen SQL, independent of application code.
+- **Verified:** one spec of 24 behaviours run against both adapters; migration up -> down -> up on a throwaway database; Mac with live Postgres: 559 passed, 0 skipped; sandbox 500 passed / 59 live-only skipped; ruff, mypy, import-linter (6 contracts: persistence knows only contracts) clean. CI's stack job now also runs `tests/contract` against the live database.
+- **Not done (by design):** Row-Level Security (needs a non-superuser application role, which the dev image does not have; Phase 9/11), connection-pool wiring into the API lifespan (first use: Gate 3.8 ingestion use case), `image_assets` table (Gate 3.3/3.4 with the object store), version-number allocation (callers read `latest_version` + 1 and a clash surfaces as `VersionConflictError`; Phase 4 adds the retry loop).
+- **Mac gotcha refined:** `chflags -R nohidden .venv` sometimes misses a `.pth` (we saw `ekip_identity.pth` stay hidden); use `chflags nohidden .venv/lib/python3.12/site-packages/*.pth` and `uv run --no-sync` afterwards.
+- **Next:** Gate 3.3 `ObjectStore` port (raw documents and image assets, content-addressed keys, tenant-prefixed) with local-filesystem and S3-compatible adapters.
+
+## Gate 3.3 — Object store, image assets, image chunks (2026-10-19)
+- **What:** `ObjectStore` port (`put/get/head/delete`) with `InMemoryObjectStore` and `LocalFileObjectStore`; `ObjectKey` = (tenant, kind raw|assets, sha256) with path `tenants/<tenant>/<kind>/<sha[:2]>/<sha>`; `ImageAsset` contract (bytes live in the store, metadata in Postgres `image_assets`: page, bbox as page fractions, nearby chunk ordinal, mime, size, dimensions, caption, alt text, OCR text, model description + `description_model_version`); `AssetRepository` port (+ both adapters); `Chunk.kind` (`text|image`) + `asset_sha256`; migration `0002` (table, CHECKs, `kind`/`asset_sha256` coupling constraint).
+- **Design points:** (1) The store computes the key FROM the bytes, so a caller cannot mislabel an object, and a key can only be built from a validated tenant id, a closed kind and a sha256: no path-traversal surface at all (hostile tenants/hashes are rejected at construction; the file adapter additionally checks the resolved path stays under its root). (2) Dedupe is per tenant only: identical bytes in two tenants are two objects, so there is no cross-tenant existence oracle and deleting one tenant's copy cannot affect another. (3) Atomic writes (temp file + fsync + rename), integrity re-checked on read (`ObjectIntegrityError`), size limit, first content-type wins on dedupe. (4) An image becomes searchable through an `image` chunk whose text is `ImageAsset.search_text` (caption + alt + OCR + description); the chunk points to the asset by hash, retrieval stays text-only, citations can link to the image. (5) Assets freeze with the version (INDEXED/DELETED), exactly like chunks.
+- **Verified:** 12 object-store behaviours on both adapters (+ corruption, layout, no temp files, 20 concurrent identical puts), 25 contract unit tests (hostile keys, asset validation, chunk kind coupling), 6 asset-repository behaviours on both repository adapters, migration up/down/up now includes `image_assets`. Mac with live Postgres: 637 passed, 0 skipped.
+- **Not done (by design):** S3/MinIO adapter and presigned URLs (cloud phase; same port and tests), serving images through the API (needs the ACL check from Phase 5), malware scanning of uploads (Phase 9).
+- **Next:** Gate 3.4 parser port: text/Markdown/HTML/PDF/DOCX into structured blocks, extracting images, with hostile-input limits.
+
+## Decision — knowledge graph store (2026-10-19, ADR-007)
+- Asked: is TigerGraph open source? **No**: Community Edition is free but proprietary (internal use, 300 GB cap, no benchmarking, no support). Chosen: **Apache AGE on PostgreSQL 18** behind a future `KnowledgeGraph` port, introduced only when GraphRAG (P2) is justified by evaluation. Caveat recorded: AGE tables cannot yet be sharded with Citus, so it scales by partitioning/replicas; a sharded engine (e.g. NebulaGraph, JanusGraph) is the fallback behind the same port, licence to be verified then.
+
+## Gate 3.4 — Parser port and parsers (2026-10-19)
+- **What:** `ekip_contracts.parsing` (`DocumentParser` port, `ParsedDocument/ParsedBlock/ParsedImage`, `BlockKind`: heading, paragraph, list_item, table, code, image) and new library `ekip_ingestion` (no network, no database) with parsers for text, Markdown, HTML, PDF (pypdf) and DOCX (python-docx), a MIME registry, `ParseLimits`, and safe image inspection.
+- **Security design (documents are untrusted input):** hard limits on bytes, pages, blocks, images, table cells and ZIP expansion (DOCX is checked BEFORE opening: zip-bomb guard); magic-byte checks so a DOCX claiming to be a PDF is refused; encrypted PDFs refused; every library failure becomes a generic `ParseError`. HTML: scripts/styles/frames/svg and comments dropped, and text a human cannot see (hidden attribute, aria-hidden, display:none, visibility:hidden, zero font-size/opacity) is dropped because hidden text is the classic carrier for indirect prompt injection (I-3); `<img src="http://...">` is NEVER fetched (no SSRF), only inline data: URIs are read. Images: header-only inspection (a decompression bomb is rejected by its declared pixels before any decoding), SVG refused (XML with scripts/external refs), allow-list PNG/JPEG/GIF/WEBP.
+- **Cost design (fewer model calls):** PDF pages without a text layer are reported in `pages_needing_ocr`, so OCR runs only where needed and never on a text PDF; a cheap filter drops icons/bullets/spacers (min side 48 px, min 1 KB) before any vision call; an image repeated across pages (logo) is kept once; HTML/DOCX duplicates are dropped by sha256.
+- **Verified:** 45 parser tests (structure, hidden-text variants, external image never fetched, scanned and blank PDFs, repeated images, encrypted/corrupt/wrong-magic files, zip bomb, tiny images, registry routing). Hand-built minimal PDF, python-docx and Pillow generate all fixtures (no binaries in the repo). Mac: 682 passed, 0 skipped.
+- **Not done (by design):** layout-aware PDF structure (headings from font sizes/outlines), OCR itself (Gate 3.6 provider), XLSX/PPTX/email parsers (later), running parsers in a separate sandboxed process with a hard timeout (threads cannot be killed; Phase 9/11).
+- **Next:** Gate 3.5 normalizer and structure-aware chunker (stable ids, hashes, section paths, image chunks, table/code handling).
+
+## Gate 3.5 — Normalizer and structure-aware chunker (2026-10-19)
+- **What:** `ekip_ingestion.chunking`: `strip_boilerplate` (running headers/footers repeated on >= 3 pages and >= half of the text pages, bare page numbers), `chunk_document` (-> `ChunkingResult(chunks, assets)`), `embedding_text` (title + section path + content), `ChunkingConfig` (target 2,000 chars ~500 tokens, ceiling 3,200 ~800 tokens, 200-char overlap only inside one split paragraph), `ImageEnrichment` (OCR text / vision description + model version, looked up by image sha256).
+- **Rules:** a chunk never crosses a heading (section boundaries are chunk boundaries); paragraphs and list items are packed to the target; tables and code are their own chunks; an oversized table splits by rows WITH the header repeated, code splits at lines (an endless line is cut), prose splits at sentences with overlap, unpunctuated text at whitespace, an unbroken token is hard-cut. An image becomes a `PendingAsset` (asset + bytes for the object store) in document order, plus an `image` chunk only when it has text (caption/alt/OCR/description); otherwise it is stored and becomes searchable once an enrichment exists.
+- **Why these choices:** (1) Determinism: pure function, no model calls; the same input yields identical ids/hashes. (2) Edit stability: because sections are hard boundaries, editing one section leaves every other section's chunk hashes unchanged (tested), which is what lets Phase 4 skip re-embedding; the honest limit is that an edit INSIDE a section can shift that section's own boundaries. (3) Context without an LLM: `embedding_text` prepends title and section path to the text that is embedded, while the stored `content` stays clean for display and citation (a "contextual retrieval" LLM pass is a later experiment, not a default). (4) Enrichment is an input, so the pipeline order is parse -> (batched, cached vision/OCR only for images that survived the filter) -> chunk, and the chunker itself never calls a model.
+- **Verified:** 35 tests (section paths, packing with no loss/duplication, oversize paths, determinism, edit stability, 40 random documents always give valid bounded chunks, images with/without text and with enrichment incl. provenance rule, boilerplate thresholds, config validation, DOCX end to end).
+- **Limits (recorded):** size is measured in characters (about 4 chars per token), not real tokens, to avoid a tokenizer dependency; PDF headings are not detected (no layout analysis), so PDF chunks carry no section path beyond what bookmarks could add later.
+- **Next:** Gate 3.6 `Embedder` port, Gemini adapter (batching, retries, validation), embedding cache and a deterministic fake.
+
+## Gate 3.6 — Embedder port + Gemini provider
+
+**What:** `Embedder` Protocol in `ekip_contracts.embedding` (`model_version`, `dimensions`, `embed(texts, task)`); adapters in `ekip_llm_gateway`: `GeminiEmbedder` (httpx, `batchEmbedContents`), `CachingEmbedder` (+ `EmbeddingCache`, in-memory LRU), `HashingEmbedder` (offline, deterministic). Settings: `embedding_provider/model/dimensions`.
+
+**Why:**
+- `model_version` (e.g. `gemini-embedding-001@768`) is stored with every vector; changing model or dimension means a re-embed, never a silent mix.
+- `task` (document vs query) matters: Gemini embeds them differently for retrieval.
+- Fewer calls = lower latency/cost: in-call dedupe, batches of ≤100 run concurrently, cache keyed by `(model_version, task, sha256(text))`. Unchanged chunks are never re-embedded.
+- Truncated (768-dim) vectors are not unit length, so we L2-normalise; cosine == dot product.
+
+**Security:** key only in the `x-goog-api-key` header; errors carry the HTTP status, never the response body or input text; responses validated (count, dimension, finite, non-zero).
+
+**Resilience:** retry 429/5xx/network with jittered exponential backoff, honouring Retry-After (capped 30 s); 4xx is not retried; exhaustion → `EmbeddingUnavailableError`.
+
+**Verified:** 19 unit tests (MockTransport); live test (`RUN_LIVE_LLM=1`) on the Mac returned 768-dim unit vectors with the related document ranked first. Import-linter: 8 contracts kept.
+
+**Gotcha:** `ekip_config` exports `Settings` from `ekip_config.settings`, not the package root.
+
+## Gate 3.7 — OpenSearch mapping + chunk indexer
+
+**What:** `ChunkIndex` port (`ekip_contracts.search_index`: `ensure_ready`, `replace_document`, `delete_document`, `update_acl`, `count_chunks`, `IndexEntry`) and `ekip-search` package: `mapping.py` (pure), `queries.py` (`tenant_and_acl_filter`), `opensearch.py` (httpx adapter).
+
+**Design decisions**
+- One shared index per embedding `model_version` (`ekip-chunks-<slug>`); `tenant_id` on every doc, mandatory in every query, and used as the routing key (queries touch fewer shards). A model change = a new index, built beside the old one, so vectors from different models never mix. Existing index with a different mapping version / model / dimension → fail loudly (`ensure_ready`).
+- `dynamic: strict`: unknown fields are errors. `source_uri`/`content_hash` are stored, not indexed.
+- Vectors: HNSW, Lucene engine, cosine. Lucene filters *during* graph traversal, so a restrictive ACL filter still returns k hits (verified live: the 5 nearest neighbours were forbidden docs and the allowed doc was still found).
+- ACL fail-closed by construction: a doc listing nobody has empty `allowed_*` fields and matches neither filter clause; there is no "public" flag to forget.
+- `replace_document`: reject stale (older version never overwrites newer, via max-version aggregation); bulk in batches of 200 with `_id = chunk_id` (idempotent); then delete older-version and leftover same-version chunks; return the live count so the caller can validate the publication. Failed bulk items fail the whole publication.
+- `update_acl` rewrites ACL fields in place (painless script, no re-embedding): the Phase 4 permission-change path.
+- Errors carry the HTTP status only (response bodies can echo document text); 429/502/503/504 and network errors retried with backoff.
+
+**Gaps (deliberate, later phases):** no "invisible until validated" flag between bulk and prune (a brief overlap of old and new version is possible; Phase 4 safe-publication); no alias for zero-downtime reindex; search itself is Phase 5.
+
+**Verified:** 17 unit tests (MockTransport), 10 live tests against Compose OpenSearch 3.9 (BM25 exact id, tenant/ACL isolation, empty-ACL, kNN filtered, version replace + stale, ACL revoke, delete, cross-tenant delete, strict mapping). 9 import-linter contracts kept.
+
+## Gate 3.8 — IngestDocument use case + failure recovery
+
+**What:** `ekip_ingestion.pipeline.IngestDocument` (`submit`, `ingest`, `run`), `IngestionFailed(reason, stage, retryable)`, optional `ImageEnricher` hook, and `InMemoryChunkIndex` (test double with the same rules as the OpenSearch adapter).
+
+**Flow:** `submit` stores raw bytes (key = sha256, must equal `document.content_hash`) and registers the version. `run` drives PENDING → PARSING → CHUNKING → EMBEDDING → INDEXING → INDEXED and validates the published chunk count before the final transition.
+
+**Recovery rules (each has a test)**
+- Every stage persists before the status moves; persistence is atomic/idempotent. Assets are written before the chunk set, so "chunks exist" ⇒ "assets exist".
+- `run` resumes from durable state: chunks present ⇒ skip parse + chunk (embedding outage → retry does not re-parse).
+- Embeddings are not stored in Postgres; the embedding cache (keyed by model, task, text hash) makes an index-outage retry free of embedding calls.
+- A version left mid-stage by a dead worker is moved to FAILED("interrupted") and resumed. Assumes one worker per version; Phase 4 enforces it (Temporal workflow id).
+- Failure reasons are fixed codes (`parse_error`, `no_content`, `embedding_unavailable`, `embedding_failed`, `index_unavailable`, `index_failed`, `superseded`, `storage_failed`, `invalid_document`, `unexpected_error`), never exception text, which can echo document content. `retryable` tells the caller (later: the Temporal retry policy) whether a retry can help.
+- Old version cannot overwrite a newer one in the index (`superseded`, non-retryable). Re-running an INDEXED document is a no-op.
+
+**Verified:** 15 unit tests (happy path, image chunk + asset, outages, crash resume, corrupt/empty/unsupported, stale version, submit idempotency/conflict/hash mismatch, model-version guard); live end-to-end on the Mac with Postgres + OpenSearch, with the hashing embedder and with real Gemini (768-dim): ingest → count → BM25 hit for alice, none for mallory → re-run is idempotent.
+
+**Deferred:** image enrichment providers (OCR / vision) behind `ImageEnricher`; "invisible until validated" publication and event-driven triggers (Phase 4); HTTP upload route (needs the first real use of idempotency keys).

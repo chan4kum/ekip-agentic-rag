@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: SecretStr | None = None
 
+    # Embeddings: a different provider/model lifecycle from the chat LLM (see ADR on model_version).
+    embedding_provider: Literal["gemini", "hashing"] = "gemini"
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dimensions: int = Field(default=768, ge=128, le=3072)
+
     # Provider keys: SecretStr never prints its value
     groq_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
