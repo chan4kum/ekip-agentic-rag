@@ -228,3 +228,34 @@ async def test_hashing_embedder_is_deterministic_and_similar_texts_are_closer() 
     assert (await e.embed(["landing gear"], task=EmbeddingTask.DOCUMENT)) == (
         await e.embed(["landing gear"], task=EmbeddingTask.DOCUMENT)
     )
+
+
+async def test_scoped_views_do_not_share_cache_entries() -> None:
+    inner = HashingEmbedder(64)
+    base = CachingEmbedder(inner, InMemoryEmbeddingCache())
+    a, b = base.scoped("tenant-a"), base.scoped("tenant-b")
+    await a.embed(["same text"], task=EmbeddingTask.DOCUMENT)
+    await a.embed(["same text"], task=EmbeddingTask.DOCUMENT)
+    assert inner.texts_embedded == 1  # tenant-a reuses its own entry
+    await b.embed(["same text"], task=EmbeddingTask.DOCUMENT)
+    assert inner.texts_embedded == 2  # tenant-b does not see tenant-a's entry
+    assert base.stats.hits == 1 and base.stats.misses == 2
+
+
+async def test_cached_vector_of_the_wrong_size_is_ignored() -> None:
+    cache = InMemoryEmbeddingCache()
+    inner = HashingEmbedder(64)
+    c = CachingEmbedder(inner, cache)
+    key = c._key("poisoned", EmbeddingTask.DOCUMENT)  # noqa: SLF001
+    await cache.set_many({key: (1.0, 2.0)})  # 2 dims where 64 are expected
+    [v] = await c.embed(["poisoned"], task=EmbeddingTask.DOCUMENT)
+    assert len(v) == 64 and inner.texts_embedded == 1
+
+
+def test_caching_embedder_declares_itself_scopable() -> None:
+    from ekip_contracts.embedding import ScopableEmbedder
+
+    assert isinstance(
+        CachingEmbedder(HashingEmbedder(64), InMemoryEmbeddingCache()), ScopableEmbedder
+    )
+    assert not isinstance(HashingEmbedder(64), ScopableEmbedder)

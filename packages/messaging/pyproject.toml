@@ -1,0 +1,13 @@
+[project]
+name = "ekip-messaging"
+version = "0.1.0"
+description = "Kafka-compatible message bus adapters (aiokafka) and an in-memory twin for tests"
+requires-python = ">=3.12"
+dependencies = ["ekip-contracts", "aiokafka>=0.12"]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

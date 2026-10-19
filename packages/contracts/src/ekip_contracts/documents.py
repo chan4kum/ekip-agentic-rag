@@ -178,8 +178,18 @@ class Document:
     last_modified: datetime
     status: DocumentStatus = DocumentStatus.PENDING
     failure_reason: str | None = None  # short, non-sensitive; only meaningful when FAILED
+    # Source-side times used to order events that arrive out of order (see ChangeHandler):
+    acl_as_of: datetime | None = None  # when the current ACL was true at the source
+    deleted_at: datetime | None = None  # when the source deleted it (a tombstone)
+
+    @property
+    def acl_effective_at(self) -> datetime:
+        return self.acl_as_of or self.last_modified
 
     def __post_init__(self) -> None:
+        for stamp, name in ((self.acl_as_of, "acl_as_of"), (self.deleted_at, "deleted_at")):
+            if stamp is not None:
+                _require_aware(stamp, name)
         _require(
             self.failure_reason is None or len(self.failure_reason) <= MAX_FAILURE_CHARS,
             "failure_reason too long",

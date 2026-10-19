@@ -1,0 +1,14 @@
+[project]
+name = "ekip-workflows"
+version = "0.1.0"
+description = "Temporal workflows and activities that run EKIP ingestion durably"
+requires-python = ">=3.12"
+dependencies = ["ekip-contracts", "ekip-ingestion", "temporalio>=1.8"]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+ekip-ingestion = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

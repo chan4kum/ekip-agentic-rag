@@ -6,10 +6,11 @@ indistinguishable from a missing row.
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol
 
 from ekip_contracts.assets import ImageAsset
-from ekip_contracts.documents import Chunk, Document, DocumentStatus
+from ekip_contracts.documents import Chunk, Document, DocumentAcl, DocumentStatus
 
 
 class RepositoryError(Exception):
@@ -61,6 +62,28 @@ class DocumentRepository(Protocol):
         """Atomic compare-and-set: moves the status only if it is a legal step from the CURRENT
         status. Raises DocumentNotFoundError or InvalidTransitionError. `failure_reason` is stored
         only for FAILED."""
+        ...
+
+    async def list_versions(self, tenant_id: str, document_id: str) -> list[Document]:
+        """Every version of a logical document, oldest first (any status)."""
+        ...
+
+    async def list_latest(self, tenant_id: str, source: str) -> list[Document]:
+        """The newest version of every logical document of one source (any status, including
+        DELETED tombstones). Used by reconciliation to compare us with the source."""
+        ...
+
+    async def update_acl(
+        self, tenant_id: str, document_id: str, acl: DocumentAcl, *, as_of: datetime
+    ) -> int:
+        """Set the ACL (true at source time `as_of`) on every version that is not DELETED:
+        permissions belong to the logical document, not to one version. Idempotent.
+        Returns how many versions were touched."""
+        ...
+
+    async def mark_deleted(self, tenant_id: str, document_id: str, deleted_at: datetime) -> int:
+        """Tombstone a logical document: every version becomes DELETED and records `deleted_at`
+        (the latest tombstone time wins). Idempotent. Returns versions newly moved to DELETED."""
         ...
 
     async def replace_chunks(

@@ -331,3 +331,81 @@ Request path now: Traefik (per-IP limits, body cap, security headers) -> request
 **Verified:** 15 unit tests (happy path, image chunk + asset, outages, crash resume, corrupt/empty/unsupported, stale version, submit idempotency/conflict/hash mismatch, model-version guard); live end-to-end on the Mac with Postgres + OpenSearch, with the hashing embedder and with real Gemini (768-dim): ingest → count → BM25 hit for alice, none for mallory → re-run is idempotent.
 
 **Deferred:** image enrichment providers (OCR / vision) behind `ImageEnricher`; "invisible until validated" publication and event-driven triggers (Phase 4); HTTP upload route (needs the first real use of idempotency keys).
+
+## Gates 4.1–4.3 — change events, repository tombstones/ACL times, ChangeHandler
+
+**4.1 `SourceChange` (ekip_contracts.events):** kinds UPSERT / ACL_CHANGE / DELETE, lane LIVE|BACKFILL, `idempotency_key` (equal for redeliveries, different for real changes), `partition_key` (tenant + document => one Kafka partition => per-document order), strict `from_json` (only ContractError on bad input, 1 MiB cap). UPSERT does not carry bytes: the connector puts them in the object store first and names them by `content_hash`.
+
+**4.2 Repository:** `list_versions`, `update_acl(..., as_of)`, `mark_deleted(deleted_at)`; `Document.acl_as_of` and `deleted_at` (migration 0003). Contract tests run on memory and Postgres.
+
+**4.3 ChangeHandler (decisions by state and SOURCE time, never arrival order)**
+- Same bytes => never a new version (metadata-only changes, redeliveries). A FAILED version redelivered => retried (same version).
+- Older than held state => ignored. Older than a tombstone => ignored (no resurrection); strictly newer => new version.
+- ACL and content have separate clocks. A backfill snapshot with newer content but an older ACL keeps the newer ACL.
+- Ties favour the delete (privacy-safe side).
+- Side-effect order: repository first, then index; both idempotent; duplicates repeat the index step, so a crash between them heals on retry.
+- `IngestDocument` publishes with the ACL as of now, then re-reads: DELETED => remove chunks and stop (`deleted`); ACL changed => re-apply to the index. Tested with hooks injected between "chunks indexed" and "marked INDEXED".
+- Version-number races: register conflict => re-read and decide again (3 attempts).
+
+**Known limits:** a DELETE for a never-seen document leaves no tombstone (reconciliation, Gate 4.7, removes ghosts); payload erasure (raw bytes, assets, DB chunk rows) on delete is a separate retention job; cache invalidation is Phase 8.
+
+**Verified:** 22 handler tests, 12 event tests, repository contract tests (memory + Postgres).
+
+## Gate 4.4 — Persistent, tenant-scoped embedding reuse
+
+**What:** `RedisEmbeddingCache` (float32, MGET / pipelined SET with TTL, 30 days), `CachingEmbedder.scoped(scope)`, `CacheStats` (hits / misses / reuse rate), `ScopableEmbedder` protocol; `IngestDocument` embeds through the per-tenant view.
+
+**Why:** a new document version re-chunks deterministically (sections are hard boundaries), so unchanged chunks produce the same `embedding_text`; the cache turns them into hits. Measured in a test: a 10-section document with one paragraph edited costs exactly **1** new embedding on v2.
+
+**Decisions**
+- Keys are `emb:<tenant>:<model_version>:<task>:<sha256(text)>`: a model or dimension change misses automatically; the tenant segment stops one tenant seeing (or timing) another's text.
+- The cache is an optimisation, never a dependency: Redis errors and corrupt entries degrade to misses (`errors` counter), a cached vector of the wrong size is a miss (poisoning guard).
+- Shared interface test (`tests/contract/test_embedding_cache.py`) runs against memory and live Redis.
+
+**Verified:** unit + contract tests; live Redis contract run on the Mac.
+
+## Gate 4.5 — Event transport: Redpanda/Kafka, consumer, DLQ, lanes
+
+**What:** `ekip_contracts.messaging` (ports `MessagePublisher`, `Subscription`; `Delivery`, `ChangeTopics`, `ProcessingFailure`), `ekip-messaging` (aiokafka adapters + in-memory broker with Kafka semantics), `ekip_ingestion.consumer` (`ChangePublisher`, `ChangeProcessor`, `ChangeConsumer`, `IngestTrigger`, `InlineIngestTrigger`), Redpanda in Compose (digest-pinned, dev only, localhost-bound).
+
+**Guarantees (all tested; the broker-facing ones also against live Redpanda)**
+- At-least-once: commit only after the whole batch is handled or parked in the DLQ. A failed commit, a crash before commit, or a failed DLQ publish all redeliver; the state-based ChangeHandler makes redelivery harmless.
+- Per-document order: message key = tenant + document; one key's messages run sequentially, keys run concurrently (bounded by a semaphore = backpressure on the handler side).
+- Lanes: live is drained before backfill is read; DELETE and ACL_CHANGE go to the live lane even if a backfill produced them (revocation never queues behind a replay).
+- Poison messages: malformed or non-retryable -> DLQ immediately; retryable -> exponential backoff with jitter in place, bounded attempts, then DLQ (`<reason>_retries_exhausted`). DLQ keeps the original bytes and headers plus reason code, attempts, source topic/partition/offset, timestamp. No exception text ever reaches headers.
+- Producer: idempotent, acks=all. Consumer: auto-commit off, read_committed, earliest on first start.
+
+**Known trade-offs:** in-place retries block a partition for at most max_attempts backoffs (keeps per-document order); a batch commits as a unit. Production: managed Kafka with TLS/SASL (`client_options` pass-through), replication 3, partitions sized for consumer parallelism; DLQ replay tooling comes with the ops runbooks.
+
+## Gate 4.6 — Durable ingestion with Temporal
+
+**What:** `ekip-workflows` (`IngestVersionWorkflow`, `IngestActivities`, `TemporalIngestTrigger`, `build_worker`), Temporal dev server in Compose (digest-pinned, localhost-bound, in-memory state: dev only), Temporal settings.
+
+**Ownership boundary:** Temporal decides *whether and when* a version is processed (retries, timeouts, single-flight, history). `IngestDocument` decides *what processing means* and owns the document status. The workflow carries three ids and no business state.
+
+**Guarantees (tested live against Temporal)**
+- Workflow id = `ingest:<tenant>:<document>:v<N>`; `USE_EXISTING` + `ALLOW_DUPLICATE_FAILED_ONLY`: five concurrent starts run the activity once; a start after success is accepted and does nothing; a start after a *failed* run runs again. This is the "one worker per version" assumption that the pipeline's `interrupted` recovery relies on.
+- `IngestionFailed.retryable` drives Temporal's retry policy: retryable -> exponential backoff up to `max_attempts`; not retryable -> `ApplicationError(non_retryable)`, one attempt.
+- Failures cross the boundary as a reason **code** only (Temporal stores failure messages in history; an exception message can echo document text). Unexpected exceptions become `unexpected_error` with no chained cause.
+- The trigger starts the workflow and does not wait; Temporal unreachable -> retryable `workflow_unavailable`, so the Kafka consumer retries/DLQs rather than committing an unstarted ingest.
+
+**Gotchas:** `result_type` is set on `get_workflow_handle`, not `result()`; `WorkflowAlreadyStartedError` lives in `temporalio.exceptions`. Workflow tests need a live server (the bundled test-server download is blocked in the sandbox), so they are gated by `RUN_INTEGRATION=1`.
+
+## Gate 4.7 — Reconciliation against the source
+
+**What:** `SourceConnector` port (`inventory`, `fetch`; `ekip_contracts.source`), `DocumentRepository.list_latest(tenant, source)` (memory + Postgres, contract-tested), `Reconciler` / `ReconcileReport` in `ekip_ingestion.reconcile`.
+
+**Why:** webhooks drop, feeds expire and DLQs park events, so the event stream alone can drift from the source. A periodic "what exists now?" diff is the safety net.
+
+**Design choice:** the reconciler changes no state. It publishes ordinary `SourceChange` events (backfill lane; DELETE and ACL_CHANGE are routed to the live lane), so ordering, idempotency and tombstone rules stay in `ChangeHandler` only. Upserts store the fetched bytes in the object store first, because the handler requires content to exist before it registers a version.
+
+**Rules (all tested)**
+- Missing -> UPSERT; `source_version` differs -> UPSERT (metadata-only changes become DUPLICATE downstream); ACL differs and the listing is not older than our ACL -> ACL_CHANGE (no re-embedding); absent from the listing -> DELETE.
+- Tombstone newer than the source copy -> not revived (fail closed); source copy newer than the tombstone -> recreated.
+- "Absent" means "delete", so: an incomplete listing raises `source_unavailable` before any event is sent, and a mass-delete guard (>30% of live documents and at least 10) withholds the deletes and reports them.
+- Fetch failures and vanished items are counted and skipped, never turned into deletes. Tenant and source scoping verified.
+- Convergence test: after missed edit/delete/permission/create events the system reaches the source's state, and the next run emits nothing.
+
+**Known limits:** one tenant+source is diffed in memory (shard by prefix beyond millions); an UPSERT stamps the ACL with the event time, so a listing's `acl_as_of` only matters for ACL_CHANGE events; scheduling the reconciler (Temporal schedule) comes with the worker service.
+
+**Bug found at the Phase 4 close-out (Gate 4.5 code):** `KafkaPublisher.close()` skipped `stop()` when `start()` had failed (broker unreachable), leaking the producer's client and tasks. CI runs pytest with `-W error`, which turned the resulting `ResourceWarning` into a failure in an unrelated test. `close()` now always stops the producer exactly once.

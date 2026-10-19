@@ -5,6 +5,7 @@ state changes are single atomic statements (compare-and-set), never read-then-wr
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -31,7 +32,7 @@ from ekip_persistence.dsn import to_asyncpg_dsn
 _DOC_COLUMNS = (
     "tenant_id, document_id, version, source, source_document_id, source_version, content_hash, "
     "title, mime_type, source_uri, acl_version, allowed_users, allowed_groups, last_modified, "
-    "status, failure_reason"
+    "status, failure_reason, acl_as_of, deleted_at"
 )
 
 
@@ -62,6 +63,8 @@ def _to_document(row: asyncpg.Record) -> Document:
         last_modified=row["last_modified"],
         status=DocumentStatus(row["status"]),
         failure_reason=row["failure_reason"],
+        acl_as_of=row["acl_as_of"],
+        deleted_at=row["deleted_at"],
     )
 
 
@@ -124,8 +127,8 @@ class PostgresDocumentRepository:
                 f"""
                 INSERT INTO documents (tenant_id, document_id, version, source, source_document_id,
                     source_version, content_hash, title, mime_type, source_uri, acl_version,
-                    allowed_users, allowed_groups, last_modified, status)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')
+                    allowed_users, allowed_groups, last_modified, status, acl_as_of)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15)
                 ON CONFLICT (tenant_id, document_id, version) DO NOTHING
                 RETURNING {_DOC_COLUMNS}
                 """,  # noqa: S608 - column list is a module constant, values are parameters
@@ -143,6 +146,7 @@ class PostgresDocumentRepository:
                 sorted(d.acl.allowed_users),
                 sorted(d.acl.allowed_groups),
                 d.last_modified,
+                d.acl_as_of,
             )
             if row is not None:
                 return _to_document(row)
@@ -165,6 +169,66 @@ class PostgresDocumentRepository:
                 document_id,
             )
         return value
+
+    async def list_versions(self, tenant_id: str, document_id: str) -> list[Document]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"SELECT {_DOC_COLUMNS} FROM documents"  # noqa: S608 - constant column list
+                " WHERE tenant_id=$1 AND document_id=$2 ORDER BY version",
+                tenant_id,
+                document_id,
+            )
+        return [_to_document(r) for r in rows]
+
+    async def list_latest(self, tenant_id: str, source: str) -> list[Document]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"SELECT DISTINCT ON (document_id) {_DOC_COLUMNS} FROM documents"  # noqa: S608
+                " WHERE tenant_id=$1 AND source=$2 ORDER BY document_id, version DESC",
+                tenant_id,
+                source,
+            )
+        return [_to_document(r) for r in rows]
+
+    async def update_acl(
+        self, tenant_id: str, document_id: str, acl: DocumentAcl, *, as_of: datetime
+    ) -> int:
+        async with self._pool.acquire() as conn:
+            result: str = await conn.execute(
+                """
+                UPDATE documents SET acl_version=$3, allowed_users=$4, allowed_groups=$5,
+                    acl_as_of=$6, updated_at=now()
+                WHERE tenant_id=$1 AND document_id=$2 AND status <> 'deleted'
+                """,
+                tenant_id,
+                document_id,
+                acl.acl_version,
+                sorted(acl.allowed_users),
+                sorted(acl.allowed_groups),
+                as_of,
+            )
+        return int(result.rsplit(" ", 1)[-1])  # "UPDATE <n>"
+
+    async def mark_deleted(self, tenant_id: str, document_id: str, deleted_at: datetime) -> int:
+        async with self._pool.acquire() as conn, conn.transaction():
+            result: str = await conn.execute(
+                """
+                UPDATE documents SET status='deleted', failure_reason=NULL, updated_at=now()
+                WHERE tenant_id=$1 AND document_id=$2 AND status <> 'deleted'
+                """,
+                tenant_id,
+                document_id,
+            )
+            await conn.execute(
+                """
+                UPDATE documents SET deleted_at = GREATEST(coalesce(deleted_at, $3), $3)
+                WHERE tenant_id=$1 AND document_id=$2
+                """,
+                tenant_id,
+                document_id,
+                deleted_at,
+            )
+        return int(result.rsplit(" ", 1)[-1])
 
     async def transition(
         self,

@@ -72,6 +72,11 @@ class FlakyEmbedder:
     def dimensions(self) -> int:
         return self._inner.dimensions
 
+    def scoped(self, scope: str) -> "FlakyEmbedder":
+        view = FlakyEmbedder(self._inner.scoped(scope))
+        view.failures = self.failures  # one shared script of failures
+        return view
+
     async def embed(self, texts: Sequence[str], *, task: EmbeddingTask) -> list[tuple[float, ...]]:
         if self.failures:
             raise self.failures.pop(0)
@@ -281,3 +286,39 @@ def test_embedder_and_index_must_share_a_model_version() -> None:
             embedder=HashingEmbedder(16),
             index=InMemoryChunkIndex(model_version="other@16", dimensions=16),
         )  # fmt: skip
+
+
+def sectioned(price: str = "400", sections: int = 10) -> bytes:
+    body = "".join(
+        f"<h1>Section {i}</h1><p>Procedure number {i} for the landing gear: "
+        f"{price if i == 4 else 'unchanged'} hours between inspections of part {i}.</p>"
+        for i in range(sections)
+    )
+    return f"<html><head><title>Gear</title></head><body>{body}</body></html>".encode()
+
+
+async def test_an_edit_re_embeds_only_the_changed_chunks() -> None:
+    rig = Rig()
+    v1 = make_doc(sectioned("400"))
+    await rig.use_case.ingest(v1, sectioned("400"))
+    first = rig.base.texts_embedded
+    assert first >= 10
+    v2 = make_doc(sectioned("600"), version=2)
+    await rig.use_case.ingest(v2, sectioned("600"))
+    assert rig.base.texts_embedded - first == 1  # one paragraph changed, one vector paid for
+    stats = rig.embedder._inner.stats  # noqa: SLF001
+    assert stats.hits >= 9 and stats.reuse_rate > 0.4
+
+
+async def test_embedding_reuse_never_crosses_tenants() -> None:
+    rig = Rig()
+    await rig.use_case.ingest(make_doc(sectioned()), sectioned())
+    before = rig.base.texts_embedded
+    other = Document.create(
+        tenant_id="tenant-b", source="sharepoint", source_document_id="manual-1", version=1,
+        source_version="v1", content=sectioned(), title="Gear manual", mime_type="text/html",
+        source_uri="https://example.test/manual-1", acl=ACL,
+        last_modified=datetime(2026, 10, 19, tzinfo=UTC),
+    )  # fmt: skip
+    await rig.use_case.ingest(other, sectioned())
+    assert rig.base.texts_embedded - before >= 10  # tenant-b paid for everything itself

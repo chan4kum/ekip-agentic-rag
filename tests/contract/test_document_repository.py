@@ -41,6 +41,7 @@ LIVE = os.environ.get("RUN_INTEGRATION") == "1"
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://ekip:ekip@localhost:5432/ekip")
 S = DocumentStatus
 NOW = datetime(2026, 10, 19, 6, 30, tzinfo=UTC)
+LATER = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
 
 
 @pytest.fixture(params=["memory", pytest.param("postgres", marks=pytest.mark.integration)])
@@ -448,3 +449,84 @@ async def test_assets_are_tenant_isolated_and_frozen_once_indexed(
     with pytest.raises(ImmutableVersionError):
         await repo.replace_assets(a, d.document_id, 1, [])
     assert len(await repo.list_assets(a, d.document_id, 1)) == 1
+
+
+async def test_list_versions_is_ordered_complete_and_tenant_isolated(
+    repo: Repo, tenant: Callable[[], str]
+) -> None:
+    a, b = tenant(), tenant()
+    v1, v2, v3 = doc(a), doc(a, version=2, content=b"v2"), doc(a, version=3, content=b"v3")
+    for d in (v3, v1, v2):
+        await repo.register(d)
+    assert [d.version for d in await repo.list_versions(a, v1.document_id)] == [1, 2, 3]
+    assert await repo.list_versions(b, v1.document_id) == []
+
+
+async def test_update_acl_changes_live_versions_but_not_deleted_ones(
+    repo: Repo, tenant: Callable[[], str]
+) -> None:
+    a = tenant()
+    v1, v2 = doc(a), doc(a, version=2, content=b"v2")
+    await repo.register(v1)
+    await repo.register(v2)
+    await repo.transition(a, v1.document_id, 1, S.DELETED)
+    new = DocumentAcl("acl-2", frozenset({"bob"}), frozenset())
+    assert await repo.update_acl(a, v1.document_id, new, as_of=LATER) == 1
+    after = {d.version: d for d in await repo.list_versions(a, v1.document_id)}
+    assert after[2].acl == new and after[2].acl_effective_at == LATER
+    assert after[1].acl != new  # deleted versions are left alone
+
+
+async def test_update_acl_is_tenant_isolated(repo: Repo, tenant: Callable[[], str]) -> None:
+    a, b = tenant(), tenant()
+    d = doc(a)
+    await repo.register(d)
+    assert await repo.update_acl(b, d.document_id, DocumentAcl("acl-9"), as_of=LATER) == 0
+    got = await repo.get(a, d.document_id, 1)
+    assert got is not None and got.acl.acl_version == "acl-1"
+
+
+async def test_mark_deleted_tombstones_every_version_and_is_idempotent(
+    repo: Repo, tenant: Callable[[], str]
+) -> None:
+    a = tenant()
+    v1, v2 = doc(a), doc(a, version=2, content=b"v2")
+    await repo.register(v1)
+    await repo.register(v2)
+    await advance(repo, v1, *HAPPY)
+    assert await repo.mark_deleted(a, v1.document_id, LATER) == 2
+    versions = await repo.list_versions(a, v1.document_id)
+    assert {d.status for d in versions} == {S.DELETED} and {d.deleted_at for d in versions} == {
+        LATER
+    }
+    assert await repo.mark_deleted(a, v1.document_id, LATER) == 0  # nothing newly deleted
+    earlier = LATER.replace(hour=7)
+    await repo.mark_deleted(a, v1.document_id, earlier)  # an older tombstone never rewinds it
+    assert {d.deleted_at for d in await repo.list_versions(a, v1.document_id)} == {LATER}
+
+
+async def test_mark_deleted_is_tenant_isolated(repo: Repo, tenant: Callable[[], str]) -> None:
+    a, b = tenant(), tenant()
+    d = doc(a)
+    await repo.register(d)
+    assert await repo.mark_deleted(b, d.document_id, LATER) == 0
+    got = await repo.get(a, d.document_id, 1)
+    assert got is not None and got.status is S.PENDING and got.deleted_at is None
+
+
+async def test_list_latest_returns_the_newest_version_per_document_for_one_source(
+    repo: Repo, tenant: Callable[[], str]
+) -> None:
+    a, b = tenant(), tenant()
+    one = doc(a)
+    await repo.register(one)
+    await repo.register(doc(a, version=2, content=b"v2"))
+    other = doc(a, sid="manual-2")
+    await repo.register(other)
+    await repo.mark_deleted(a, other.document_id, LATER)  # tombstones are listed too
+    await repo.register(doc(b))
+    latest = {d.document_id: d for d in await repo.list_latest(a, one.source)}
+    assert set(latest) == {one.document_id, other.document_id}
+    assert latest[one.document_id].version == 2
+    assert latest[other.document_id].status is S.DELETED
+    assert await repo.list_latest(a, "some-other-source") == []

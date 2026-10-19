@@ -42,7 +42,7 @@ Cross-cutting: OpenTelemetry · Langfuse · Prometheus/Grafana · Terraform · K
 | 1 | Foundation: toolchain, FastAPI, config, structured logging, tracing, hardened Docker Compose (reverse proxy, egress proxy), CI | Done |
 | 2 | Identity and backend: OIDC/JWT validation (Keycloak), tenant isolation, RBAC, Redis rate limits, RFC 9457 errors, deadlines, idempotency, SSE chat, security regression suite | Done |
 | 3 | Single-document ingestion: hardened parsers (text/HTML/PDF/DOCX, images), structure-aware chunking, Gemini embeddings with cache, OpenSearch hybrid index with ACL fields, resumable `IngestDocument` pipeline | Done |
-| 4 | Incremental ingestion: events, workflows, idempotency, deletes, ACL changes | Planned |
+| 4 | Incremental ingestion: change events, state-based out-of-order handling, Redpanda/Kafka consumer with lanes and DLQ, Temporal single-flight workflow, tenant-scoped embedding reuse, deletes, ACL changes, source reconciliation | Done |
 | 5 | Retrieval: hybrid search, reranking, citations, evaluation harness | Planned |
 | 6 | Single-agent RAG with LangGraph and checkpoints | Planned |
 | 7 | Multi-step agents: planner, verifier, budgets, human approval | Planned |
@@ -75,6 +75,15 @@ Security posture: RS256-only allowlist, JWKS cache with rotation, generic 401s, 
 - **Fewer model calls:** identical texts embedded once per call, batches of 100, cache keyed by (model version, task, text hash), so unchanged chunks and retries cost nothing.
 - **One index per embedding model version** (HNSW, cosine, Lucene engine) with tenant and ACL filters applied *during* vector search; an empty ACL matches nobody.
 - **Recoverable:** an embedding or index outage leaves the document `FAILED` with a fixed reason code and a `retryable` flag; the retry resumes without re-parsing or re-embedding. An older version can never overwrite a newer one.
+
+## Incremental ingestion (Phase 4)
+`SourceChange` events (upsert · acl_change · delete) → **Kafka-API topics** (live and backfill lanes, DLQ) → `ChangeHandler` → Temporal workflow → `IngestDocument`.
+- **Decides from state, not arrival order:** separate source-time clocks for content, ACL and tombstones; duplicates, replays and stale snapshots are harmless; a delete beats an equal-time update.
+- **At-least-once with safe redelivery:** offsets commit only after the batch is handled or parked in the DLQ; per-document ordering via message keys; the live lane is always drained before backfill, and deletes/permission changes never queue behind a replay.
+- **Poison messages never block the stream:** retryable failures back off with jitter then park; DLQ keeps the original bytes plus a reason *code* (never exception text).
+- **Durable processing:** one Temporal workflow per document version (`USE_EXISTING`, so concurrent triggers run it once); `retryable` drives Temporal's retry policy; failures cross the boundary as codes.
+- **Cheap updates:** a tenant-scoped Redis embedding cache means editing one paragraph of a ten-section document re-embeds exactly one chunk.
+- **Reconciliation:** periodic source inventory diff repairs missed creates, edits, permission changes and deletes by publishing ordinary events; incomplete listings abort before any delete, and a mass-delete guard withholds suspicious deletions.
 
 ## Repository layout
 ```

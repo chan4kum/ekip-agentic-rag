@@ -35,7 +35,9 @@ from ekip_contracts.embedding import (
     EmbeddingError,
     EmbeddingTask,
     EmbeddingUnavailableError,
+    ScopableEmbedder,
 )
+from ekip_contracts.messaging import ProcessingFailure
 from ekip_contracts.object_store import ObjectKey, ObjectKind, ObjectStore, StorageError
 from ekip_contracts.parsing import ParsedDocument, ParseError
 from ekip_contracts.search_index import (
@@ -58,14 +60,14 @@ class ImageEnricher(Protocol):
     async def enrich(self, parsed: ParsedDocument) -> Mapping[str, ImageEnrichment]: ...
 
 
-class IngestionFailed(Exception):
+class IngestionFailed(ProcessingFailure):
     """A stage failed. The document is already FAILED; `retryable` says if a retry can help."""
 
     def __init__(self, reason: str, *, stage: DocumentStatus, retryable: bool) -> None:
-        super().__init__(f"ingestion failed at {stage.value}: {reason}")
-        self.reason = reason
+        super().__init__(
+            reason, retryable=retryable, message=f"ingestion failed at {stage.value}: {reason}"
+        )
         self.stage = stage
-        self.retryable = retryable
 
 
 @dataclass(frozen=True)
@@ -161,7 +163,12 @@ class IngestDocument:
 
     async def _embed_and_index(self, doc: Document, chunks: Sequence[Chunk]) -> IngestResult:
         await self._advance(doc, S.EMBEDDING)
-        vectors = await self._embedder.embed(
+        embedder = (  # per-tenant cache partition when the embedder supports one
+            self._embedder.scoped(doc.tenant_id)
+            if isinstance(self._embedder, ScopableEmbedder)
+            else self._embedder
+        )
+        vectors = await embedder.embed(
             [embedding_text(doc, c) for c in chunks], task=EmbeddingTask.DOCUMENT
         )
         entries = [
@@ -172,9 +179,21 @@ class IngestDocument:
             for c, v in zip(chunks, vectors, strict=True)
         ]
         await self._advance(doc, S.INDEXING)
-        indexed = await self._index.replace_document(doc, entries)
+        # Publish with the ACL as it is NOW (it may have changed while we were embedding)...
+        current = await self._docs.get(doc.tenant_id, doc.document_id, doc.version)
+        if current is None or current.status is S.DELETED:
+            raise IngestionFailed("deleted", stage=S.INDEXING, retryable=False)
+        indexed = await self._index.replace_document(current, entries)
         if indexed != len(entries):  # validate the publication before declaring success
             raise SearchIndexError("index count does not match chunk count")
+        # ...and look again afterwards: a delete or ACL change that landed while we were
+        # publishing updated the repository first, so the repository is the authority.
+        after = await self._docs.get(doc.tenant_id, doc.document_id, doc.version)
+        if after is None or after.status is S.DELETED:
+            await self._index.delete_document(doc.tenant_id, doc.document_id)
+            raise IngestionFailed("deleted", stage=S.INDEXING, retryable=False)
+        if after.acl != current.acl:
+            await self._index.update_acl(doc.tenant_id, doc.document_id, after.acl)
         done = await self._advance(doc, S.INDEXED)
         return await self._result(done)
 

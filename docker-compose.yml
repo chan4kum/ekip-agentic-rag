@@ -51,6 +51,46 @@ services:
       timeout: 10s
       retries: 12
 
+  redpanda:
+    # DEV message broker (Kafka API). Production: managed Kafka with TLS + SASL and replication 3.
+    image: redpandadata/redpanda:v26.2.4@sha256:c98c2f04a751e6646012cc701bac5183252cee44c88ba1dfa412e4c7124f2e89
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:${KAFKA_HOST_PORT:-19092}
+    ports: ["127.0.0.1:${KAFKA_HOST_PORT:-19092}:19092"] # DEV ONLY (host-side tests)
+    networks: [app, dev]
+    volumes: ["rp_data:/var/lib/redpanda/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  temporal:
+    # DEV Temporal (one process, in-memory state: restarts forget workflows). Production: a real
+    # cluster on its own Postgres/Cassandra with mTLS and namespaces per environment.
+    image: temporalio/temporal:1.9.1@sha256:ad4c82c97bd12b417d1ea942610dbcd511afb250c4d5ed26c694009533df447e
+    restart: unless-stopped
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--ui-ip", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:${TEMPORAL_HOST_PORT:-7233}:7233" # DEV ONLY (host-side tests)
+      - "127.0.0.1:${TEMPORAL_UI_PORT:-8233}:8233" # web UI
+    networks: [app, dev]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
   keycloak:
     # DEV identity provider. Production: pre-built optimized image + external Postgres, no import.
     image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
@@ -172,3 +212,4 @@ networks:
 volumes:
   pg_data:
   os_data:
+  rp_data:

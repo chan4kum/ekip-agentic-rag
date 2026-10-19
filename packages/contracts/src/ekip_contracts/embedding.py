@@ -8,7 +8,7 @@ model or its dimensions change.
 
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 class EmbeddingTask(StrEnum):
@@ -34,3 +34,14 @@ class Embedder(Protocol):
     async def embed(self, texts: Sequence[str], *, task: EmbeddingTask) -> list[tuple[float, ...]]:
         """One unit vector per text, in order. Raises only EmbeddingError subclasses."""
         ...
+
+
+@runtime_checkable
+class ScopableEmbedder(Protocol):
+    """An embedder whose caches can be partitioned (we use the tenant id).
+
+    Identical text in two tenants must not share a cache entry: a hit would reveal that the other
+    tenant holds that text (timing), and a shared store would mix their content.
+    """
+
+    def scoped(self, scope: str) -> Embedder: ...

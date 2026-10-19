@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     database_url: PostgresDsn = PostgresDsn("postgresql+asyncpg://ekip:ekip@localhost:5432/ekip")
     redis_url: RedisDsn = RedisDsn("redis://localhost:6379/0")
     opensearch_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9200")
+    kafka_bootstrap_servers: str = "localhost:19092"  # comma-separated host:port list
+    temporal_address: str = "localhost:7233"
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "ekip-ingestion"
+    kafka_topic_prefix: str = Field(default="ekip", pattern=r"^[a-z][a-z0-9_-]{0,31}$")
 
     # Hard per-request deadline (non-streaming routes). Keep it below the proxy's response-header
     # timeout (60 s in Traefik) so callers get our problem+json 504, not an opaque proxy error.

@@ -3,7 +3,7 @@ name = "ekip"
 version = "0.1.0"
 description = "Enterprise Knowledge Intelligence Platform: agentic RAG"
 requires-python = ">=3.12,<3.13"
-dependencies = ["ekip-config", "ekip-observability", "ekip-contracts", "ekip-identity", "ekip-authorization", "ekip-ratelimit", "ekip-persistence", "ekip-ingestion", "ekip-llm-gateway", "ekip-search", "ekip-api"]         # workspace packages / runtime deps are added per step
+dependencies = ["ekip-config", "ekip-observability", "ekip-contracts", "ekip-identity", "ekip-authorization", "ekip-ratelimit", "ekip-persistence", "ekip-ingestion", "ekip-llm-gateway", "ekip-search", "ekip-messaging", "ekip-workflows", "ekip-api"]         # workspace packages / runtime deps are added per step
 
 [dependency-groups]
 dev = [
@@ -36,7 +36,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "S"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = "packages/config/src:packages/observability/src:packages/contracts/src:packages/identity/src:packages/authorization/src:packages/ratelimit/src:packages/persistence/src:packages/ingestion/src:packages/llm-gateway/src:packages/search/src:apps/api/src:tests/support"
+mypy_path = "packages/config/src:packages/observability/src:packages/contracts/src:packages/identity/src:packages/authorization/src:packages/ratelimit/src:packages/persistence/src:packages/ingestion/src:packages/llm-gateway/src:packages/search/src:packages/messaging/src:packages/workflows/src:apps/api/src:tests/support"
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
@@ -58,6 +58,8 @@ members = [
     "packages/ingestion",
     "packages/llm-gateway",
     "packages/search",
+    "packages/messaging",
+    "packages/workflows",
 ]
 
 [tool.uv.sources]
@@ -71,28 +73,30 @@ ekip-persistence = { workspace = true }
 ekip-ingestion = { workspace = true }
 ekip-llm-gateway = { workspace = true }
 ekip-search = { workspace = true }
+ekip-messaging = { workspace = true }
+ekip-workflows = { workspace = true }
 ekip-api = { workspace = true }
 
 [[tool.mypy.overrides]]
-module = ["asyncpg", "asyncpg.*", "alembic", "alembic.*", "docx", "docx.*"]
+module = ["asyncpg", "asyncpg.*", "alembic", "alembic.*", "docx", "docx.*", "aiokafka", "aiokafka.*"]
 ignore_missing_imports = true # asyncpg ships no type stubs
 
 # ---- Architecture rules (ADR-001); enforced in CI via `uv run lint-imports` ----
 [tool.importlinter]
-root_packages = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search", "ekip_api"]
+root_packages = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search", "ekip_messaging", "ekip_workflows", "ekip_api"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Shared packages never import apps"
 type = "forbidden"
-source_modules = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search"]
+source_modules = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search", "ekip_messaging", "ekip_workflows"]
 forbidden_modules = ["ekip_api"]
 
 [[tool.importlinter.contracts]]
 name = "Contracts depend on nothing else in the repo"
 type = "forbidden"
 source_modules = ["ekip_contracts"]
-forbidden_modules = ["ekip_api", "ekip_config", "ekip_observability", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search"]
+forbidden_modules = ["ekip_api", "ekip_config", "ekip_observability", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search", "ekip_messaging", "ekip_workflows"]
 
 [[tool.importlinter.contracts]]
 name = "Persistence adapters know only the contracts"
@@ -119,10 +123,22 @@ source_modules = ["ekip_search"]
 forbidden_modules = ["ekip_api", "ekip_config", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "asyncpg", "redis"]
 
 [[tool.importlinter.contracts]]
+name = "Messaging adapters know only the contracts"
+type = "forbidden"
+source_modules = ["ekip_messaging"]
+forbidden_modules = ["ekip_api", "ekip_config", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search", "asyncpg", "redis"]
+
+[[tool.importlinter.contracts]]
+name = "Workflows know only the contracts and the ingestion use cases"
+type = "forbidden"
+source_modules = ["ekip_workflows"]
+forbidden_modules = ["ekip_api", "ekip_config", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_llm_gateway", "ekip_search", "ekip_messaging", "asyncpg", "redis"]
+
+[[tool.importlinter.contracts]]
 name = "Services and contracts never import infrastructure SDKs"
 type = "forbidden"
 source_modules = ["ekip_api.services", "ekip_contracts"]
-forbidden_modules = ["asyncpg", "redis", "httpx", "opensearchpy", "openai"]
+forbidden_modules = ["asyncpg", "redis", "httpx", "opensearchpy", "openai", "aiokafka", "temporalio"]
 
 [[tool.importlinter.contracts]]
 name = "Services see ports, never adapters"

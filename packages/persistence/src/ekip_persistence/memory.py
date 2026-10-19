@@ -6,6 +6,7 @@ operation is atomic under asyncio (the Postgres adapter gets the same guarantee 
 
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 
 from ekip_contracts.assets import ImageAsset
 from ekip_contracts.document_store import (
@@ -18,6 +19,7 @@ from ekip_contracts.documents import (
     Chunk,
     ContractError,
     Document,
+    DocumentAcl,
     DocumentStatus,
     can_transition,
 )
@@ -54,6 +56,48 @@ class InMemoryDocumentRepository:
     async def latest_version(self, tenant_id: str, document_id: str) -> int | None:
         versions = [v for (t, d, v) in self._docs if t == tenant_id and d == document_id]
         return max(versions) if versions else None
+
+    async def list_versions(self, tenant_id: str, document_id: str) -> list[Document]:
+        return sorted(
+            (d for (t, i, _), d in self._docs.items() if t == tenant_id and i == document_id),
+            key=lambda d: d.version,
+        )
+
+    async def list_latest(self, tenant_id: str, source: str) -> list[Document]:
+        latest: dict[str, Document] = {}
+        for (t, i, _), d in self._docs.items():
+            if (
+                t == tenant_id
+                and d.source == source
+                and (i not in latest or d.version > latest[i].version)
+            ):
+                latest[i] = d
+        return sorted(latest.values(), key=lambda d: d.document_id)
+
+    async def update_acl(
+        self, tenant_id: str, document_id: str, acl: DocumentAcl, *, as_of: datetime
+    ) -> int:
+        changed = 0
+        for key, doc in list(self._docs.items()):
+            if (key[0], key[1]) != (tenant_id, document_id):
+                continue
+            if doc.status is not DocumentStatus.DELETED:
+                self._docs[key] = replace(doc, acl=acl, acl_as_of=as_of)
+                changed += 1
+        return changed
+
+    async def mark_deleted(self, tenant_id: str, document_id: str, deleted_at: datetime) -> int:
+        moved = 0
+        for key, doc in list(self._docs.items()):
+            if (key[0], key[1]) != (tenant_id, document_id):
+                continue
+            latest = max(deleted_at, doc.deleted_at) if doc.deleted_at else deleted_at
+            if doc.status is not DocumentStatus.DELETED:
+                moved += 1
+            self._docs[key] = replace(
+                doc, status=DocumentStatus.DELETED, failure_reason=None, deleted_at=latest
+            )
+        return moved
 
     async def transition(
         self,
