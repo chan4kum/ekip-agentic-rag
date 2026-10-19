@@ -12,6 +12,9 @@ SETTINGS_ENV = (
     "DATABASE_URL",
     "REDIS_URL",
     "OPENSEARCH_URL",
+    "OIDC_ISSUER",
+    "OIDC_AUDIENCE",
+    "OIDC_JWKS_URL",
 )
 
 
@@ -69,6 +72,8 @@ def test_production_with_local_infra_fails(
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.internal:5432/db")
     monkeypatch.setenv("REDIS_URL", "redis://cache.internal:6379/0")
     monkeypatch.setenv("OPENSEARCH_URL", "https://search.internal:9200")
+    monkeypatch.setenv("OIDC_ISSUER", "https://idp.example.com/realms/ekip")
+    monkeypatch.setenv("OIDC_JWKS_URL", "https://idp.example.com/realms/ekip/certs")
     monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError, match="localhost in production"):
         make()
@@ -79,6 +84,8 @@ def test_production_with_remote_infra_is_accepted(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.internal:5432/db")
     monkeypatch.setenv("REDIS_URL", "redis://cache.internal:6379/0")
     monkeypatch.setenv("OPENSEARCH_URL", "https://search.internal:9200")
+    monkeypatch.setenv("OIDC_ISSUER", "https://idp.example.com/realms/ekip")
+    monkeypatch.setenv("OIDC_JWKS_URL", "https://idp.example.com/realms/ekip/certs")
     assert make().app_env == "production"
 
 
@@ -86,3 +93,42 @@ def test_settings_are_frozen() -> None:
     s = make()
     with pytest.raises(ValidationError):
         s.log_level = "DEBUG"  # type: ignore[misc]
+
+
+def test_oidc_defaults_are_local_dev_values() -> None:
+    s = make()
+    assert str(s.oidc_issuer) == "http://localhost:8081/realms/ekip"
+    assert s.oidc_audience == "ekip-api"
+
+
+def _production_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.internal:5432/db")
+    monkeypatch.setenv("REDIS_URL", "redis://cache.internal:6379/0")
+    monkeypatch.setenv("OPENSEARCH_URL", "https://search.internal:9200")
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("OIDC_ISSUER", "http://idp.example.com/realms/ekip", "OIDC_ISSUER must use https"),
+        ("OIDC_JWKS_URL", "http://idp.example.com/certs", "OIDC_JWKS_URL must use https"),
+        ("OIDC_ISSUER", "https://localhost/realms/ekip", "OIDC_ISSUER points to localhost"),
+        ("OIDC_JWKS_URL", "https://127.0.0.1/certs", "OIDC_JWKS_URL points to localhost"),
+    ],
+)
+def test_production_requires_secure_non_local_oidc(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str, message: str
+) -> None:
+    _production_env(monkeypatch)
+    monkeypatch.setenv("OIDC_ISSUER", "https://idp.example.com/realms/ekip")
+    monkeypatch.setenv("OIDC_JWKS_URL", "https://idp.example.com/certs")
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError, match=message):
+        make()
+
+
+def test_production_with_default_oidc_urls_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    _production_env(monkeypatch)
+    with pytest.raises(ValidationError, match="OIDC_ISSUER"):
+        make()

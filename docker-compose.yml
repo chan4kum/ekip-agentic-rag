@@ -51,6 +51,37 @@ services:
       timeout: 10s
       retries: 12
 
+  keycloak:
+    # DEV identity provider. Production: pre-built optimized image + external Postgres, no import.
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"] # imports the ekip realm when the realm does not exist
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin-dev-only}
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_HOST_PORT:-8081} # the issuer (iss) every token carries
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true" # api may fetch keys via http://keycloak:8080
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx640m"
+    volumes:
+      - ./infrastructure/keycloak/realm-ekip.json:/opt/keycloak/data/import/realm-ekip.json:ro
+    ports: ["127.0.0.1:${KEYCLOAK_HOST_PORT:-8081}:8080"] # DEV ONLY; override if 8081 is taken
+    networks: [app, dev]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
+
   api:
     build: { context: ., dockerfile: apps/api/Dockerfile }
     restart: unless-stopped
@@ -62,8 +93,12 @@ services:
       OPENSEARCH_URL: http://opensearch:9200
       FORWARDED_ALLOW_IPS: 172.28.1.10 # trust client IP only from Traefik
       TRACING_EXPORTER: ${TRACING_EXPORTER:-none} # set to 'console' to print spans
+      CHAT_STUB_TOKEN_DELAY_S: ${CHAT_STUB_TOKEN_DELAY_S:-0.3} # Phase-2 stub only: visible streaming
+      OIDC_ISSUER: http://localhost:${KEYCLOAK_HOST_PORT:-8081}/realms/ekip # must equal token `iss`
+      OIDC_AUDIENCE: ekip-api
+      OIDC_JWKS_URL: http://keycloak:8080/realms/ekip/protocol/openid-connect/certs # internal fetch
       HTTPS_PROXY: http://squid:3128 # outbound HTTPS only via the allowlist proxy
-      NO_PROXY: postgres,redis,opensearch,localhost,127.0.0.1
+      NO_PROXY: postgres,redis,opensearch,keycloak,localhost,127.0.0.1
     depends_on:
       squid: { condition: service_healthy }
       postgres: { condition: service_healthy }

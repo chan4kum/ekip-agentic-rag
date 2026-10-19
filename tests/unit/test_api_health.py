@@ -11,6 +11,7 @@ from ekip_api.schemas import HealthResponse
 from ekip_config.settings import Settings
 from ekip_observability.context import clear_request_context
 from ekip_observability.logging import configure_logging
+from idp_testkit import TestIdp, open_limits
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -28,9 +29,14 @@ def log_buf() -> Iterator[io.StringIO]:
     structlog.reset_defaults()
 
 
+IDP = TestIdp()
+
+
 @pytest.fixture
 async def client(log_buf: io.StringIO) -> AsyncIterator[httpx.AsyncClient]:
-    transport = httpx.ASGITransport(app=create_app(make_settings()))
+    transport = httpx.ASGITransport(
+        app=create_app(make_settings(), token_validator=IDP.validator(), rate_limits=open_limits())
+    )
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
@@ -90,6 +96,8 @@ async def test_docs_are_hidden_in_production() -> None:
         database_url="postgresql+asyncpg://u:p@db.internal:5432/db",
         redis_url="redis://cache.internal:6379/0",
         opensearch_url="https://search.internal:9200",
+        oidc_issuer="https://idp.example.com/realms/ekip",
+        oidc_jwks_url="https://idp.example.com/realms/ekip/protocol/openid-connect/certs",
     )
     transport = httpx.ASGITransport(app=create_app(settings))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
@@ -111,5 +119,5 @@ async def test_lifespan_logs_startup_and_shutdown(capsys: pytest.CaptureFixture[
 async def test_access_log_never_contains_the_query_string(
     client: httpx.AsyncClient, log_buf: io.StringIO
 ) -> None:
-    await client.get("/api/v1/search", params={"q": "private question text"})
+    await client.get("/api/v1/search", params={"q": "private question text"}, headers=IDP.auth())
     assert "private question text" not in log_buf.getvalue()

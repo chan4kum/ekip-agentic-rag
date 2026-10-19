@@ -3,7 +3,7 @@ name = "ekip"
 version = "0.1.0"
 description = "Enterprise Knowledge Intelligence Platform: agentic RAG"
 requires-python = ">=3.12,<3.13"
-dependencies = ["ekip-config", "ekip-observability", "ekip-contracts", "ekip-api"]         # workspace packages / runtime deps are added per step
+dependencies = ["ekip-config", "ekip-observability", "ekip-contracts", "ekip-identity", "ekip-authorization", "ekip-ratelimit", "ekip-api"]         # workspace packages / runtime deps are added per step
 
 [dependency-groups]
 dev = [
@@ -35,13 +35,14 @@ select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "S"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = "packages/config/src:packages/observability/src:packages/contracts/src:apps/api/src"
+mypy_path = "packages/config/src:packages/observability/src:packages/contracts/src:packages/identity/src:packages/authorization/src:packages/ratelimit/src:apps/api/src:tests/support"
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = ["integration: needs the live Docker Compose stack (set RUN_INTEGRATION=1)"]
 testpaths = ["tests"]
+pythonpath = ["tests/support"]  # shared test-only helpers (e.g. a fake IdP)
 
 [tool.uv.workspace]
 members = [
@@ -49,12 +50,18 @@ members = [
     "packages/observability",
     "apps/api",
     "packages/contracts",
+    "packages/identity",
+    "packages/authorization",
+    "packages/ratelimit",
 ]
 
 [tool.uv.sources]
 ekip-config = { workspace = true }
 ekip-observability = { workspace = true }
 ekip-contracts = { workspace = true }
+ekip-identity = { workspace = true }
+ekip-authorization = { workspace = true }
+ekip-ratelimit = { workspace = true }
 ekip-api = { workspace = true }
 
 [[tool.mypy.overrides]]
@@ -63,20 +70,20 @@ ignore_missing_imports = true # asyncpg ships no type stubs
 
 # ---- Architecture rules (ADR-001); enforced in CI via `uv run lint-imports` ----
 [tool.importlinter]
-root_packages = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_api"]
+root_packages = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_api"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Shared packages never import apps"
 type = "forbidden"
-source_modules = ["ekip_config", "ekip_observability", "ekip_contracts"]
+source_modules = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit"]
 forbidden_modules = ["ekip_api"]
 
 [[tool.importlinter.contracts]]
 name = "Contracts depend on nothing else in the repo"
 type = "forbidden"
 source_modules = ["ekip_contracts"]
-forbidden_modules = ["ekip_api", "ekip_config", "ekip_observability"]
+forbidden_modules = ["ekip_api", "ekip_config", "ekip_observability", "ekip_identity", "ekip_authorization", "ekip_ratelimit"]
 
 [[tool.importlinter.contracts]]
 name = "Services and contracts never import infrastructure SDKs"

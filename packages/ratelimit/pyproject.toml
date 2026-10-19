@@ -1,0 +1,14 @@
+[project]
+name = "ekip-ratelimit"
+version = "0.1.0"
+description = "Token-bucket rate limiting (Redis + in-memory) for EKIP"
+requires-python = ">=3.12"
+dependencies = ["ekip-contracts", "ekip-observability", "redis>=8.1.0"]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+ekip-observability = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

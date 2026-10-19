@@ -126,3 +126,26 @@ def test_middleware_order_rejects_cheaply_and_retries_closest_to_service(
 def test_ready_is_not_routed_at_the_edge(dynamic: dict[str, Any]) -> None:
     for router in dynamic["http"]["routers"].values():
         assert "/ready" not in router["rule"]
+
+
+def test_chat_stream_router_never_goes_through_response_buffering_or_retry(
+    dynamic: dict[str, Any],
+) -> None:
+    """`buffering` holds a whole response back, which silently breaks SSE (found live in 2.7)."""
+    chat = dynamic["http"]["routers"]["chat"]
+    defined = dynamic["http"]["middlewares"]
+    for name in chat["middlewares"]:
+        assert not {"buffering", "retry"} & set(defined[name]), f"{name} would break streaming"
+    assert {"secure-headers", "rate-limit", "in-flight-chat"} <= set(chat["middlewares"])
+
+
+def test_chat_router_wins_over_the_generic_api_router(dynamic: dict[str, Any]) -> None:
+    routers = dynamic["http"]["routers"]
+    assert routers["chat"]["rule"] == "Path(`/api/v1/chat`)"
+    assert routers["chat"]["priority"] > routers["api"].get("priority", 0)
+    assert routers["chat"]["service"] == routers["api"]["service"]
+
+
+def test_edge_does_not_cut_long_streams(static: dict[str, Any]) -> None:
+    timeouts = static["entryPoints"]["web"]["transport"]["respondingTimeouts"]
+    assert timeouts.get("writeTimeout", 0) == 0  # a write timeout would end every long answer

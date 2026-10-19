@@ -9,6 +9,9 @@ dependencies = [
     "ekip-config",
     "ekip-observability",
     "ekip-contracts",
+    "ekip-identity",
+    "ekip-authorization",
+    "ekip-ratelimit",
     "asyncpg>=0.32.0",
     "redis>=8.1.0",
     "httpx>=0.28.1",
@@ -19,6 +22,9 @@ dependencies = [
 ekip-config = { workspace = true }
 ekip-observability = { workspace = true }
 ekip-contracts = { workspace = true }
+ekip-identity = { workspace = true }
+ekip-authorization = { workspace = true }
+ekip-ratelimit = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]

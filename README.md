@@ -40,7 +40,7 @@ Cross-cutting: OpenTelemetry · Langfuse · Prometheus/Grafana · Terraform · K
 |---|---|---|
 | 0 | Architecture decisions, security invariants | Done |
 | 1 | Foundation: toolchain, FastAPI, config, structured logging, tracing, hardened Docker Compose (reverse proxy, egress proxy), CI | Done |
-| 2 | Identity and backend: OIDC/JWT, tenancy, authorization, rate limits, streaming | Planned |
+| 2 | Identity and backend: OIDC/JWT validation (Keycloak), tenant isolation, RBAC, Redis rate limits, RFC 9457 errors, deadlines, idempotency, SSE chat, security regression suite | Done |
 | 3 | Single-document ingestion: parse, chunk, embed, index | Planned |
 | 4 | Incremental ingestion: events, workflows, idempotency, deletes, ACL changes | Planned |
 | 5 | Retrieval: hybrid search, reranking, citations, evaluation harness | Planned |
@@ -57,6 +57,16 @@ uv sync
 uv run pytest
 docker compose up -d --build --wait && bash scripts/smoke.sh   # live stack + smoke test
 ```
+macOS note: if Python cannot import the workspace packages after `uv sync`, run `chflags -R nohidden .venv` (the OS `hidden` flag makes Python skip editable `.pth` files).
+
+## API surface (Phase 2)
+| Endpoint | Auth | Notes |
+|---|---|---|
+| `GET /health`, `GET /ready` | public | liveness / dependency readiness |
+| `GET /api/v1/search` | Bearer JWT, role with `documents:search` | tenant comes only from the validated token; per-user and per-tenant rate limits |
+| `POST /api/v1/chat` | Bearer JWT | Server-Sent Events: `meta`, `token`, `citations`, `done`, `error`; own deadline and heartbeats |
+
+Security posture: RS256-only allowlist, JWKS cache with rotation, generic 401s, fail-closed authorization and rate limiting, problem+json errors. A route-inventory test fails any new route until it is classified public or protected, and every protected route is attacked with forged, expired, mis-audienced and tampered tokens (`tests/security`).
 
 ## Repository layout
 ```

@@ -6,6 +6,8 @@ from ekip_observability.logging import get_logger
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from ekip_api.errors import REQUEST_ID_SCOPE_KEY
+
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 log = get_logger("ekip.http")
 
@@ -25,6 +27,7 @@ class RequestContextMiddleware:
             return
         request_id = _request_id(Headers(scope=scope).get("x-request-id"))
         bind_request_context(request_id)
+        scope[REQUEST_ID_SCOPE_KEY] = request_id  # lets error handlers outside us quote it
         started, status = time.perf_counter(), 500
 
         async def send_with_id(message: Message) -> None:

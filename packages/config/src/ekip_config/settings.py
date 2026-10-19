@@ -1,6 +1,6 @@
 from typing import Literal, Self
 
-from pydantic import AnyHttpUrl, PostgresDsn, RedisDsn, SecretStr, model_validator
+from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,50 @@ class Settings(BaseSettings):
     database_url: PostgresDsn = PostgresDsn("postgresql+asyncpg://ekip:ekip@localhost:5432/ekip")
     redis_url: RedisDsn = RedisDsn("redis://localhost:6379/0")
     opensearch_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9200")
+
+    # Hard per-request deadline (non-streaming routes). Keep it below the proxy's response-header
+    # timeout (60 s in Traefik) so callers get our problem+json 504, not an opaque proxy error.
+    request_timeout_s: float = Field(default=30.0, gt=0, le=55.0)
+
+    # Largest accepted request body. Traefik enforces the same 1 MiB for ordinary routes; the app
+    # enforces it itself for streams, which bypass the edge's buffering middleware.
+    max_request_body_bytes: int = Field(default=1_048_576, ge=1024)
+
+    # Streaming chat (SSE): own overall deadline (the 30 s request deadline would cut answers off),
+    # heartbeats so idle proxies keep the connection, and a typing delay for the Phase-2 stub only.
+    chat_timeout_s: float = Field(default=120.0, gt=0, le=600.0)
+    chat_keepalive_s: float = Field(default=15.0, gt=0, le=60.0)
+    chat_stub_token_delay_s: float = Field(default=0.0, ge=0, le=2.0)
+
+    # Rate limiting (token buckets in Redis). Burst = bucket size; per_minute = refill speed.
+    # The edge (Traefik) already limits per IP; these limit per authenticated user and tenant.
+    rate_limit_user_burst: int = Field(default=20, ge=1)
+    rate_limit_user_per_minute: int = Field(default=60, ge=1)
+    rate_limit_tenant_burst: int = Field(default=200, ge=1)
+    rate_limit_tenant_per_minute: int = Field(default=600, ge=1)
+    rate_limit_fail_open: bool = False  # Redis down: False -> 503 (safe default), True -> allow
+
+    # OIDC (Keycloak locally). The issuer is what tokens must carry in `iss` (the browser-facing
+    # URL); the JWKS URL is where WE fetch keys (may be an internal address). We never derive one
+    # from the other, and never take either from a token (that would let an attacker pick keys).
+    oidc_issuer: AnyHttpUrl = AnyHttpUrl("http://localhost:8081/realms/ekip")
+    oidc_audience: str = "ekip-api"
+    oidc_jwks_url: AnyHttpUrl = AnyHttpUrl(
+        "http://localhost:8081/realms/ekip/protocol/openid-connect/certs"
+    )
+
+    @model_validator(mode="after")
+    def _secure_oidc_in_production(self) -> Self:
+        if self.app_env == "production":
+            for name, url in (
+                ("OIDC_ISSUER", self.oidc_issuer),
+                ("OIDC_JWKS_URL", self.oidc_jwks_url),
+            ):
+                if url.scheme != "https":
+                    raise ValueError(f"{name} must use https in production")
+                if (url.host or "") in {"localhost", "127.0.0.1"}:
+                    raise ValueError(f"{name} points to localhost in production")
+        return self
 
     @model_validator(mode="after")
     def _no_local_infra_in_production(self) -> Self:

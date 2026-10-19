@@ -10,12 +10,14 @@ from ekip_api.main import create_app
 from ekip_config.settings import Settings
 from ekip_observability.logging import configure_logging, get_logger
 from ekip_observability.tracing import _one_line_json, build_tracer_provider
+from idp_testkit import TestIdp, open_limits
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import ValidationError
 
 TRACE_ID = "0af7651916cd43dd8448eb211c80319c"
+IDP = TestIdp()
 
 
 def settings() -> Settings:
@@ -46,7 +48,12 @@ def log_buf() -> Iterator[io.StringIO]:
 async def client(
     provider: TracerProvider, log_buf: io.StringIO
 ) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(settings(), tracer_provider=provider)
+    app = create_app(
+        settings(),
+        tracer_provider=provider,
+        token_validator=IDP.validator(),
+        rate_limits=open_limits(),
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -63,7 +70,7 @@ def log_lines(stream: io.StringIO) -> list[dict[str, Any]]:
 async def test_a_search_request_produces_one_server_span(
     client: httpx.AsyncClient, exporter: InMemorySpanExporter
 ) -> None:
-    r = await client.get("/api/v1/search", params={"q": "torque"})
+    r = await client.get("/api/v1/search", params={"q": "torque"}, headers=IDP.auth())
     assert r.status_code == 200
     (span,) = server_spans(exporter)
     assert "/api/v1/search" in span.name
@@ -74,7 +81,7 @@ async def test_a_search_request_produces_one_server_span(
 async def test_the_users_question_never_appears_in_span_attributes(
     client: httpx.AsyncClient, exporter: InMemorySpanExporter
 ) -> None:
-    await client.get("/api/v1/search", params={"q": "private question text"})
+    await client.get("/api/v1/search", params={"q": "private question text"}, headers=IDP.auth())
     for span in exporter.get_finished_spans():
         dumped = json.dumps(dict(span.attributes or {}))
         assert "private" not in dumped, f"query leaked into span {span.name}: {dumped}"
@@ -91,7 +98,7 @@ async def test_probe_endpoints_are_not_traced(
 async def test_access_log_carries_the_same_trace_and_span_id_as_the_span(
     client: httpx.AsyncClient, exporter: InMemorySpanExporter, log_buf: io.StringIO
 ) -> None:
-    await client.get("/api/v1/search", params={"q": "torque"})
+    await client.get("/api/v1/search", params={"q": "torque"}, headers=IDP.auth())
     (span,) = server_spans(exporter)
     ctx = span.get_span_context()
     assert ctx is not None
@@ -129,7 +136,7 @@ def test_resource_identifies_the_service(provider: TracerProvider) -> None:
 async def test_console_span_format_is_one_json_line(
     client: httpx.AsyncClient, exporter: InMemorySpanExporter
 ) -> None:
-    await client.get("/api/v1/search", params={"q": "torque"})
+    await client.get("/api/v1/search", params={"q": "torque"}, headers=IDP.auth())
     line = _one_line_json(server_spans(exporter)[0])
     assert line.endswith("\n") and line.count("\n") == 1
     assert json.loads(line)["name"]
@@ -177,5 +184,5 @@ def test_scrubbing_processor_also_cleans_attributes_present_at_span_start(
 async def test_one_request_is_exactly_one_span(
     client: httpx.AsyncClient, exporter: InMemorySpanExporter
 ) -> None:
-    await client.get("/api/v1/search", params={"q": "torque"})
+    await client.get("/api/v1/search", params={"q": "torque"}, headers=IDP.auth())
     assert len(exporter.get_finished_spans()) == 1  # no internal receive/send spans

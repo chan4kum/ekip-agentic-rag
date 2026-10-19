@@ -6,6 +6,15 @@ http:
       service: api
       # order matters: cheap rejections first, retry closest to the service
       middlewares: [secure-headers, rate-limit, in-flight, body-limit, circuit-breaker, retry]
+    chat:
+      # SSE stream. Must NOT use `buffering` (it holds the whole response back until the stream
+      # ends, so the user would see nothing until the last token) or `retry` (it replays request
+      # bodies from a buffer). The 1 MiB body limit is enforced by the app instead (body_limit.py).
+      entryPoints: [web]
+      rule: "Path(`/api/v1/chat`)"
+      priority: 100 # beat the generic `api` router, which also matches /api/
+      service: api
+      middlewares: [secure-headers, rate-limit, in-flight-chat, circuit-breaker]
 
   services:
     api:
@@ -41,7 +50,13 @@ http:
         burst: 100
     in-flight:
       inFlightReq:
-        amount: 50 # per client IP; open SSE streams hold slots (revisit in Gate 2.7)
+        amount: 50 # per client IP (non-streaming routes; streams have in-flight-chat)
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+    in-flight-chat:
+      inFlightReq:
+        amount: 50 # open streams per client IP; a separate budget so streams cannot starve search
         sourceCriterion:
           ipStrategy:
             depth: 0
