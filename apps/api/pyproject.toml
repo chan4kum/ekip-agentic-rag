@@ -12,6 +12,9 @@ dependencies = [
     "ekip-identity",
     "ekip-authorization",
     "ekip-ratelimit",
+    "ekip-retrieval",
+    "ekip-search",
+    "ekip-llm-gateway",
     "asyncpg>=0.32.0",
     "redis>=8.1.0",
     "httpx>=0.28.1",
@@ -25,6 +28,9 @@ ekip-contracts = { workspace = true }
 ekip-identity = { workspace = true }
 ekip-authorization = { workspace = true }
 ekip-ratelimit = { workspace = true }
+ekip-retrieval = { workspace = true }
+ekip-search = { workspace = true }
+ekip-llm-gateway = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]

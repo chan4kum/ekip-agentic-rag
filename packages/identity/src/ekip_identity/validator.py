@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import jwt
+from ekip_contracts.documents import PRINCIPAL
 from ekip_contracts.identity import AccessTokenClaims, InvalidTokenError, TokenFailure
 from ekip_observability.logging import get_logger
 
@@ -14,6 +15,26 @@ log = get_logger("ekip.identity")
 
 _REQUIRED = ["exp", "iat", "iss", "aud", "sub"]
 _TENANT_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+MAX_GROUPS = 500  # a token claiming more is treated as claiming none of the excess
+
+
+def _acl_identity(payload: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
+    """The names document ACLs are written in. Anything malformed is DROPPED, never guessed:
+    fewer principals can only mean fewer documents are visible (fail closed)."""
+    raw_principal = payload.get("principal")
+    principal = (
+        raw_principal
+        if isinstance(raw_principal, str) and PRINCIPAL.fullmatch(raw_principal)
+        else None
+    )
+    raw_groups = payload.get("groups", [])
+    groups: tuple[str, ...] = ()
+    if isinstance(raw_groups, list):
+        valid = {g for g in raw_groups if isinstance(g, str) and PRINCIPAL.fullmatch(g)}
+        groups = tuple(sorted(valid))[:MAX_GROUPS]
+    return principal, groups
+
+
 _MAX_KID = 128
 
 
@@ -116,6 +137,7 @@ class JwtTokenValidator:
         roles = payload.get("roles", [])
         if not isinstance(roles, list) or not all(isinstance(r, str) for r in roles):
             raise _fail("malformed")
+        principal, groups = _acl_identity(payload)
         aud = payload["aud"]
         audience = (aud,) if isinstance(aud, str) else tuple(str(a) for a in aud)
         azp = payload.get("azp")
@@ -128,4 +150,6 @@ class JwtTokenValidator:
             tenant_id=tenant,
             roles=tuple(roles),
             authorized_party=azp if isinstance(azp, str) else None,
+            principal=principal,
+            groups=groups,
         )

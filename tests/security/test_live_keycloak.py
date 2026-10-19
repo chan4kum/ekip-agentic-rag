@@ -66,19 +66,18 @@ def _auth(token: str) -> dict[str, str]:
 
 
 async def test_real_tokens_work_and_are_tenant_scoped(client: httpx.AsyncClient) -> None:
-    for user, prefix, other in (("alice", "dev-", "oth-"), ("bob", "oth-", "dev-")):
+    for user, prefix, other in (
+        ("alice", "/tenant-dev/", "/tenant-other/"),
+        ("bob", "/tenant-other/", "/tenant-dev/"),
+    ):
         r = await client.get(
             "/api/v1/search",
             params={"q": "torque", "tenant_id": "tenant-dev"},
             headers={**_auth(await _token(user)), "X-Tenant-ID": "tenant-dev"},
         )
         assert r.status_code == 200
-        ids = [x["chunk_id"] for x in r.json()["results"]]
-        assert (
-            ids
-            and all(i.startswith(prefix) for i in ids)
-            and not any(i.startswith(other) for i in ids)
-        )
+        ids = [x["source_uri"] for x in r.json()["results"]]
+        assert ids and all(prefix in i for i in ids) and not any(other in i for i in ids)
 
 
 async def test_real_token_on_chat_streams(client: httpx.AsyncClient) -> None:

@@ -98,6 +98,33 @@
             "introspection.token.claim": "true",
             "userinfo.token.claim": "false"
           }
+        },
+        {
+          "name": "principal",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "principal",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
         }
       ]
     },
@@ -165,6 +192,33 @@
             "introspection.token.claim": "true",
             "userinfo.token.claim": "false"
           }
+        },
+        {
+          "name": "principal",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "principal",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
         }
       ]
     }
@@ -191,6 +245,9 @@
       ],
       "realmRoles": [
         "ekip-user"
+      ],
+      "groups": [
+        "/eng"
       ]
     },
     {
@@ -214,6 +271,9 @@
       ],
       "realmRoles": [
         "ekip-user"
+      ],
+      "groups": [
+        "/eng"
       ]
     },
     {
@@ -238,7 +298,21 @@
       "realmRoles": [
         "ekip-user",
         "ekip-admin"
+      ],
+      "groups": [
+        "/eng",
+        "/ops"
       ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "eng",
+      "path": "/eng"
+    },
+    {
+      "name": "ops",
+      "path": "/ops"
     }
   ]
 }

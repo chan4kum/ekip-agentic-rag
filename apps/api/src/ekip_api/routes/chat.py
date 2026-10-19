@@ -42,7 +42,7 @@ async def chat(
         yield format_event("meta", {"request_id": request_id, "conversation_id": conversation_id})
         try:
             async for item in with_heartbeats(
-                streamer.stream(message=body.message, tenant_id=ctx.tenant_id),
+                streamer.stream(message=body.message, context=ctx),
                 interval_s=settings.chat_keepalive_s,
                 total_timeout_s=settings.chat_timeout_s,
             ):

@@ -11,10 +11,14 @@ def tenant_and_acl_filter(
     Fail-closed by construction: a chunk whose ACL lists nobody has empty `allowed_*` fields and so
     matches neither clause. There is no 'public' marker to forget to check.
     """
-    should: list[dict[str, Any]] = [{"term": {"allowed_users": user}}]
+    should: list[dict[str, Any]] = []
+    if user:
+        should.append({"term": {"allowed_users": user}})
     if groups:
         should.append({"terms": {"allowed_groups": sorted(groups)}})
-    return [
-        {"term": {"tenant_id": tenant_id}},
-        {"bool": {"should": should, "minimum_should_match": 1}},
-    ]
+    acl: dict[str, Any] = (
+        {"bool": {"should": should, "minimum_should_match": 1}}
+        if should
+        else {"match_none": {}}  # no identity to match against: nothing is visible
+    )
+    return [{"term": {"tenant_id": tenant_id}}, acl]

@@ -54,11 +54,11 @@ rm -f /tmp/ekip_smoke_headers
 pass "errors are RFC 9457 problem+json and carry the request id through the edge"
 
 hits=$(curl -s -H "Authorization: Bearer $ALICE" "$EDGE/api/v1/search?q=torque")
-echo "$hits" | grep -q '"chunk_id":"dev-' || fail "alice's search for 'torque' should return her tenant's chunks"
-echo "$hits" | grep -q '"chunk_id":"oth-' && fail "alice must never see tenant-other chunks"
+echo "$hits" | grep -q 'demo.test/tenant-dev/' || fail "alice's search for 'torque' should return her tenant's chunks"
+echo "$hits" | grep -q 'demo.test/tenant-other/' && fail "alice must never see tenant-other chunks"
 bob_hits=$(curl -s -H "Authorization: Bearer $BOB" -H 'X-Tenant-ID: tenant-dev' "$EDGE/api/v1/search?q=torque&tenant_id=tenant-dev")
-echo "$bob_hits" | grep -q '"chunk_id":"oth-' || fail "bob's search should return his tenant's chunks"
-echo "$bob_hits" | grep -q '"chunk_id":"dev-' && fail "bob must never see tenant-dev chunks, even when he asks for them"
+echo "$bob_hits" | grep -q 'demo.test/tenant-other/' || fail "bob's search should return his tenant's chunks"
+echo "$bob_hits" | grep -q 'demo.test/tenant-dev/' && fail "bob must never see tenant-dev chunks, even when he asks for them"
 pass "real Keycloak tokens: search works end to end and tenants are isolated (caller-chosen tenant ignored)"
 
 # Per-user token bucket (burst 20): hammer as carol and expect 429 with Retry-After, never a 5xx.

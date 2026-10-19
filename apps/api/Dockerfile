@@ -19,6 +19,7 @@ COPY packages/llm-gateway/pyproject.toml packages/llm-gateway/pyproject.toml
 COPY packages/search/pyproject.toml packages/search/pyproject.toml
 COPY packages/messaging/pyproject.toml packages/messaging/pyproject.toml
 COPY packages/workflows/pyproject.toml packages/workflows/pyproject.toml
+COPY packages/retrieval/pyproject.toml packages/retrieval/pyproject.toml
 RUN uv sync --frozen --no-dev --no-install-workspace --package ekip-api
 
 # Layer 2: our source code

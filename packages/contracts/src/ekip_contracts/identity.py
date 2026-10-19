@@ -43,6 +43,10 @@ class AccessTokenClaims(BaseModel):
     tenant_id: str
     roles: tuple[str, ...]
     authorized_party: str | None = None
+    # Document-ACL identity, from the identity provider. Both are optional and fail closed: with
+    # neither, the caller matches no document-level ACL entry (see SearchScope).
+    principal: str | None = None
+    groups: tuple[str, ...] = ()
 
 
 class SecurityContext(BaseModel):
@@ -58,6 +62,8 @@ class SecurityContext(BaseModel):
     tenant_id: str
     roles: frozenset[str] = frozenset()
     authorized_party: str | None = None
+    principal: str | None = None  # the name document ACLs list in `allowed_users`
+    groups: frozenset[str] = frozenset()  # group names document ACLs list in `allowed_groups`
 
     @classmethod
     def from_claims(cls, claims: AccessTokenClaims) -> "SecurityContext":
@@ -66,6 +72,8 @@ class SecurityContext(BaseModel):
             tenant_id=claims.tenant_id,
             roles=frozenset(claims.roles),
             authorized_party=claims.authorized_party,
+            principal=claims.principal,
+            groups=frozenset(claims.groups),
         )
 
     def has_role(self, role: str) -> bool:

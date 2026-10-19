@@ -409,3 +409,26 @@ Request path now: Traefik (per-IP limits, body cap, security headers) -> request
 **Known limits:** one tenant+source is diffed in memory (shard by prefix beyond millions); an UPSERT stamps the ACL with the event time, so a listing's `acl_as_of` only matters for ACL_CHANGE events; scheduling the reconciler (Temporal schedule) comes with the worker service.
 
 **Bug found at the Phase 4 close-out (Gate 4.5 code):** `KafkaPublisher.close()` skipped `stop()` when `start()` had failed (broker unreachable), leaking the producer's client and tasks. CI runs pytest with `-W error`, which turned the resulting `ResourceWarning` into a failure in an unrelated test. `close()` now always stops the producer exactly once.
+
+
+# Phase 5 - Retrieval engine
+
+## Gates 5.1-5.2 - Identity in the query
+**What:** `principal` + `groups` token claims -> `SecurityContext` -> `SearchScope`; `ChunkSearcher` port; OpenSearch BM25 (`multi_match`) and kNN with the tenant + ACL filter *inside* the query (Lucene engine filter in the knn clause), routing by tenant.
+**Why:** post-filtering top-k leaks via ranking and starves callers (the nearest vectors may all be restricted). Pushdown returns the best *readable* hits. No identity -> `match_none` (fail closed). Groups are capped (500); malformed entries are dropped.
+**Gotcha:** BM25 term statistics in real OpenSearch are shard-wide (a tiny statistics side channel across tenants sharing a shard); the in-memory twin uses visible rows only. Accepted for now; dedicated index per large tenant removes it.
+
+## Gate 5.3 - Hybrid retriever
+Parallel BM25 + kNN fused with RRF (k=60, rank based, deterministic tie-break). Only `SearchIndexError`/`EmbeddingError` count as degradation; any other exception propagates. Query embeddings cached per tenant.
+
+## Gate 5.4 - Reranker port
+`HttpReranker` (Cohere/Jina/Voyage-style `/rerank`): https only, off by default, errors carry only the status. **Not verified against a live provider** (needs a key and an egress allowlist entry). `TermCoverageReranker` is a labelled baseline.
+
+## Gate 5.5 - Context assembly and citations
+Dedupe (hash or normalised text), per-document cap, token budget (chars/4 until a real tokenizer is injected), truncation at word boundaries, numbered citations. `render()` escapes markup so retrieved text cannot close its `<source>` element. `check_citations` separates valid from invented `[n]`. Note: `array[1]` in an answer is indistinguishable from a citation marker.
+
+## Gate 5.6 - API wiring
+`/api/v1/search` and the chat stub now use `SearchScope.from_context`. Backend switch `RETRIEVAL_BACKEND=memory|opensearch` (default memory: seeded demo corpus with ACLs, so smoke needs no ingestion). Keycloak realm gained `principal` and `groups` mappers and groups eng/ops (carol is in both). **Finding:** kNN always returns neighbours, so an unmatched query still returns weak hits from the caller's *own* tenant; a relevance floor is future work.
+
+## Gate 5.7 - Evaluation
+Offline (hashing embedder): hybrid recall 1.00 vs BM25 0.97 vs vector 0.86. Live (OpenSearch + Gemini): vector 1.00/MRR 1.00, hybrid 1.00/0.92, BM25 0.97/0.89, hybrid+term-coverage 0.97/0.86; 0 leaks everywhere. Reading: with a real embedding model, vector wins on this small paraphrase-heavy set; the baseline reranker hurts, so none is default. Live latency (~550 ms) is the uncached Gemini query embedding. Do not generalise from 36 queries.

@@ -1,0 +1,738 @@
+{
+ "version": "retrieval-v1",
+ "description": "Synthetic, hand-written, small (15 documents, 36 queries). Measures relative differences between retrieval variants and the access-leak count. NOT a statistically meaningful estimate of production quality.",
+ "documents": [
+  {
+   "id": "mx-gear",
+   "tenant": "eval-a",
+   "title": "Landing gear maintenance",
+   "groups": [
+    "eng",
+    "ops"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Landing gear",
+     "text": "AMM 32-11-01: Fastener torque on the main landing gear trunnion must be verified at every scheduled A-check using a calibrated wrench set to 140 Nm."
+    },
+    {
+     "section": "Landing gear",
+     "text": "Brake wear pins shall be measured at each daily inspection; replace the brake assembly when the pin length is below 5 mm."
+    }
+   ]
+  },
+  {
+   "id": "mx-hyd",
+   "tenant": "eval-a",
+   "title": "Hydraulic systems",
+   "groups": [
+    "eng",
+    "ops"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Hydraulics",
+     "text": "AMM 29-10-04: Hydraulic line inspection interval is 400 flight hours. Check for chafing, fluid seepage and loose clamps."
+    },
+    {
+     "section": "Hydraulics",
+     "text": "Hydraulic fluid type Skydrol LD-4 must never be mixed with mineral-based fluid. Flush the reservoir if contamination is suspected."
+    }
+   ]
+  },
+  {
+   "id": "mx-eng",
+   "tenant": "eval-a",
+   "title": "Engine maintenance",
+   "groups": [
+    "eng"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Engines",
+     "text": "AMM 72-00-01: Borescope inspection of the high pressure turbine blades is required every 1,500 engine cycles."
+    },
+    {
+     "section": "Engines",
+     "text": "Engine oil consumption above 0.5 litres per hour requires a chip detector check and oil sample analysis."
+    }
+   ]
+  },
+  {
+   "id": "safety-sb",
+   "tenant": "eval-a",
+   "title": "Service bulletins",
+   "groups": [
+    "eng",
+    "ops"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Bulletin",
+     "text": "Service Bulletin SB-2026-014 supersedes SB-2025-091. Operators must replace the cracked flap track fitting before 30 November 2026."
+    },
+    {
+     "section": "Bulletin",
+     "text": "Report any crack indication longer than 2 mm on the flap track to the airworthiness desk within 24 hours."
+    }
+   ]
+  },
+  {
+   "id": "ops-audit",
+   "tenant": "eval-a",
+   "title": "Operations audit 2026-Q3",
+   "groups": [
+    "ops"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Findings",
+     "text": "Audit 2026-Q3 found that torque records for three aircraft were incomplete; corrective action is due by the end of November."
+    },
+    {
+     "section": "Findings",
+     "text": "Contractor badge access to the hangar will be reviewed after two unescorted entries were logged."
+    }
+   ]
+  },
+  {
+   "id": "hr-leave",
+   "tenant": "eval-a",
+   "title": "Leave policy",
+   "groups": [
+    "hr"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Leave",
+     "text": "Employees accrue 1.75 days of annual leave per month. Unused leave up to 10 days can be carried forward into the next calendar year."
+    },
+    {
+     "section": "Parental",
+     "text": "Primary caregivers are entitled to 26 weeks of paid parental leave, which can be taken in two blocks within the first year."
+    }
+   ]
+  },
+  {
+   "id": "hr-salary",
+   "tenant": "eval-a",
+   "title": "Pay bands",
+   "groups": [
+    "hr"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Pay bands",
+     "text": "Senior engineer salary band is 95,000 to 120,000 per year; promotion reviews are held in March and September."
+    }
+   ]
+  },
+  {
+   "id": "handbook",
+   "tenant": "eval-a",
+   "title": "Finance handbook",
+   "groups": [
+    "eng",
+    "ops",
+    "hr",
+    "finance"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Expenses",
+     "text": "Travel expenses must be submitted within 30 days with receipts. Meals are reimbursed up to 60 per day when travelling overnight."
+    },
+    {
+     "section": "Expenses",
+     "text": "Purchases above 5,000 require two approvals: the budget owner and the finance controller."
+    }
+   ]
+  },
+  {
+   "id": "it-security",
+   "tenant": "eval-a",
+   "title": "IT security policy",
+   "groups": [
+    "eng",
+    "ops",
+    "hr",
+    "finance"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Passwords",
+     "text": "Passwords must be at least 14 characters. Multi-factor authentication is mandatory for VPN and email access."
+    },
+    {
+     "section": "Incidents",
+     "text": "Report lost laptops or phishing emails to the security desk immediately by calling extension 4000."
+    }
+   ]
+  },
+  {
+   "id": "it-vpn",
+   "tenant": "eval-a",
+   "title": "VPN guide",
+   "groups": [
+    "eng",
+    "ops",
+    "hr",
+    "finance"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "VPN",
+     "text": "To connect to the corporate VPN, install the GlobalConnect client and sign in with your single sign-on account."
+    }
+   ]
+  },
+  {
+   "id": "cabin",
+   "tenant": "eval-a",
+   "title": "Cabin systems",
+   "groups": [
+    "eng",
+    "ops"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Galley",
+     "text": "Cabin lighting replacement in the forward galley uses LED panel part number LP-220; isolate circuit breaker C14 first."
+    }
+   ]
+  },
+  {
+   "id": "onboarding",
+   "tenant": "eval-a",
+   "title": "New starter guide",
+   "groups": [
+    "eng",
+    "ops",
+    "hr",
+    "finance"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Welcome",
+     "text": "New starters receive a laptop on day one and should complete the security awareness course within their first two weeks."
+    }
+   ]
+  },
+  {
+   "id": "alice-note",
+   "tenant": "eval-a",
+   "title": "Personal development plan",
+   "groups": [],
+   "users": [
+    "alice"
+   ],
+   "passages": [
+    {
+     "section": "Plan",
+     "text": "Personal development plan for Alice: complete the borescope certification by March."
+    }
+   ]
+  },
+  {
+   "id": "b-mx",
+   "tenant": "eval-b",
+   "title": "Other company gear manual",
+   "groups": [
+    "eng"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Gear",
+     "text": "AMM 32-11-01: Another company's torque value for the landing gear trunnion is 155 Nm (confidential)."
+    }
+   ]
+  },
+  {
+   "id": "b-hr",
+   "tenant": "eval-b",
+   "title": "Other company leave",
+   "groups": [
+    "hr"
+   ],
+   "users": [],
+   "passages": [
+    {
+     "section": "Leave",
+     "text": "Employees accrue 2 days of annual leave per month at this company."
+    }
+   ]
+  }
+ ],
+ "queries": [
+  {
+   "id": "e1",
+   "text": "AMM 32-11-01",
+   "kind": "exact",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-gear#0"
+   ]
+  },
+  {
+   "id": "e2",
+   "text": "SB-2026-014",
+   "kind": "exact",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "safety-sb#0"
+   ]
+  },
+  {
+   "id": "e3",
+   "text": "AMM 29-10-04 hydraulic",
+   "kind": "exact",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-hyd#0"
+   ]
+  },
+  {
+   "id": "e4",
+   "text": "part number LP-220",
+   "kind": "exact",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "cabin#0"
+   ]
+  },
+  {
+   "id": "e5",
+   "text": "AMM 72-00-01",
+   "kind": "exact",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-eng#0"
+   ]
+  },
+  {
+   "id": "e6",
+   "text": "extension 4000",
+   "kind": "exact",
+   "tenant": "eval-a",
+   "user": "hana",
+   "groups": [
+    "hr"
+   ],
+   "relevant": [
+    "it-security#1"
+   ]
+  },
+  {
+   "id": "p1",
+   "text": "how often must the hydraulic lines be checked",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-hyd#0"
+   ]
+  },
+  {
+   "id": "p2",
+   "text": "how much torque for the main gear trunnion fasteners",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-gear#0"
+   ]
+  },
+  {
+   "id": "p3",
+   "text": "what happens when brake pins are worn",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-gear#1"
+   ]
+  },
+  {
+   "id": "p4",
+   "text": "can I mix hydraulic fluids",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-hyd#1"
+   ]
+  },
+  {
+   "id": "p5",
+   "text": "when do I need to inspect turbine blades",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-eng#0"
+   ]
+  },
+  {
+   "id": "p6",
+   "text": "what to do if a crack is found on the flap",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "safety-sb#1"
+   ]
+  },
+  {
+   "id": "p7",
+   "text": "how many vacation days do I get",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "hana",
+   "groups": [
+    "hr"
+   ],
+   "relevant": [
+    "hr-leave#0"
+   ]
+  },
+  {
+   "id": "p8",
+   "text": "maternity or paternity leave entitlement",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "hana",
+   "groups": [
+    "hr"
+   ],
+   "relevant": [
+    "hr-leave#1"
+   ]
+  },
+  {
+   "id": "p9",
+   "text": "how do I get reimbursed for a business trip",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "fiona",
+   "groups": [
+    "finance"
+   ],
+   "relevant": [
+    "handbook#0"
+   ]
+  },
+  {
+   "id": "p10",
+   "text": "who has to approve a big purchase",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "fiona",
+   "groups": [
+    "finance"
+   ],
+   "relevant": [
+    "handbook#1"
+   ]
+  },
+  {
+   "id": "p11",
+   "text": "what is the minimum password length",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "it-security#0"
+   ]
+  },
+  {
+   "id": "p12",
+   "text": "I lost my laptop what should I do",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "it-security#1"
+   ]
+  },
+  {
+   "id": "p13",
+   "text": "how do I connect to the VPN",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "it-vpn#0"
+   ]
+  },
+  {
+   "id": "p14",
+   "text": "what do new employees need to do in the first weeks",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "onboarding#0"
+   ]
+  },
+  {
+   "id": "p15",
+   "text": "audit findings torque records incomplete",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "omar",
+   "groups": [
+    "ops"
+   ],
+   "relevant": [
+    "ops-audit#0"
+   ]
+  },
+  {
+   "id": "p16",
+   "text": "senior engineer salary band",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "hana",
+   "groups": [
+    "hr"
+   ],
+   "relevant": [
+    "hr-salary#0"
+   ]
+  },
+  {
+   "id": "p17",
+   "text": "borescope certification plan",
+   "kind": "paraphrase",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "alice-note#0"
+   ]
+  },
+  {
+   "id": "m1",
+   "text": "service bulletin crack flap track",
+   "kind": "multi",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "safety-sb#0",
+    "safety-sb#1"
+   ]
+  },
+  {
+   "id": "m2",
+   "text": "hydraulic fluid and line inspection",
+   "kind": "multi",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-hyd#0",
+    "mx-hyd#1"
+   ]
+  },
+  {
+   "id": "m3",
+   "text": "security rules passwords and reporting incidents",
+   "kind": "multi",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "it-security#0",
+    "it-security#1"
+   ]
+  },
+  {
+   "id": "r1",
+   "text": "audit findings torque records incomplete",
+   "kind": "restricted",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": []
+  },
+  {
+   "id": "r2",
+   "text": "senior engineer salary band",
+   "kind": "restricted",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": []
+  },
+  {
+   "id": "r3",
+   "text": "contractor badge access hangar",
+   "kind": "restricted",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": []
+  },
+  {
+   "id": "r4",
+   "text": "salary band promotion reviews",
+   "kind": "restricted",
+   "tenant": "eval-a",
+   "user": "omar",
+   "groups": [
+    "ops"
+   ],
+   "relevant": []
+  },
+  {
+   "id": "r5",
+   "text": "borescope certification plan",
+   "kind": "restricted",
+   "tenant": "eval-a",
+   "user": "omar",
+   "groups": [
+    "ops"
+   ],
+   "relevant": []
+  },
+  {
+   "id": "r6",
+   "text": "engine oil consumption chip detector",
+   "kind": "restricted",
+   "tenant": "eval-a",
+   "user": "omar",
+   "groups": [
+    "ops"
+   ],
+   "relevant": []
+  },
+  {
+   "id": "x1",
+   "text": "AMM 32-11-01 torque value",
+   "kind": "cross_tenant",
+   "tenant": "eval-b",
+   "user": "ben",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "b-mx#0"
+   ]
+  },
+  {
+   "id": "x2",
+   "text": "AMM 32-11-01 torque value",
+   "kind": "cross_tenant",
+   "tenant": "eval-a",
+   "user": "alice",
+   "groups": [
+    "eng"
+   ],
+   "relevant": [
+    "mx-gear#0"
+   ]
+  },
+  {
+   "id": "x3",
+   "text": "annual leave per month",
+   "kind": "cross_tenant",
+   "tenant": "eval-a",
+   "user": "hana",
+   "groups": [
+    "hr"
+   ],
+   "relevant": [
+    "hr-leave#0"
+   ]
+  },
+  {
+   "id": "x4",
+   "text": "annual leave per month",
+   "kind": "cross_tenant",
+   "tenant": "eval-b",
+   "user": "ben",
+   "groups": [
+    "eng"
+   ],
+   "relevant": []
+  }
+ ]
+}

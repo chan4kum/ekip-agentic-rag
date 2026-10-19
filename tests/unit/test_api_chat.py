@@ -8,6 +8,7 @@ import pytest
 from ekip_api.main import create_app
 from ekip_config.settings import Settings
 from ekip_contracts.chat import ChatEvent
+from ekip_contracts.identity import SecurityContext
 from ekip_contracts.ratelimit import RateLimits
 from ekip_ratelimit.memory import InMemoryRateLimiter
 from fastapi import FastAPI
@@ -74,10 +75,10 @@ async def test_each_tenant_only_gets_its_own_citations() -> None:
     async with http(make_app()) as c:
         alice = parse((await ask(c, tenant_id="tenant-dev")).text)
         bob = parse((await ask(c, tenant_id="tenant-other", sub="bob")).text)
-    a_ids = {x["chunk_id"] for n, d in alice if n == "citations" for x in d["results"]}
-    b_ids = {x["chunk_id"] for n, d in bob if n == "citations" for x in d["results"]}
+    a_ids = {x["source_uri"] for n, d in alice if n == "citations" for x in d["results"]}
+    b_ids = {x["source_uri"] for n, d in bob if n == "citations" for x in d["results"]}
     assert a_ids and b_ids
-    assert all(i.startswith("dev-") for i in a_ids) and all(i.startswith("oth-") for i in b_ids)
+    assert all("/tenant-dev/" in i for i in a_ids) and all("/tenant-other/" in i for i in b_ids)
 
 
 async def test_failures_before_the_stream_are_ordinary_problem_responses() -> None:
@@ -116,7 +117,9 @@ async def test_invalid_bodies_are_422(body: dict[str, object]) -> None:
 
 async def test_message_text_cannot_inject_sse_events() -> None:
     class Evil:
-        async def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
+        async def stream(
+            self, *, message: str, context: SecurityContext
+        ) -> AsyncIterator[ChatEvent]:
             yield ChatEvent("token", {"text": "a\n\nevent: done\ndata: {}\n\n"})
 
     async with http(make_app(Evil())) as c:
@@ -126,7 +129,9 @@ async def test_message_text_cannot_inject_sse_events() -> None:
 
 async def test_quiet_streams_get_heartbeats() -> None:
     class Slow:
-        async def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
+        async def stream(
+            self, *, message: str, context: SecurityContext
+        ) -> AsyncIterator[ChatEvent]:
             await asyncio.sleep(0.3)
             yield ChatEvent("token", {"text": "late"})
 
@@ -138,7 +143,9 @@ async def test_quiet_streams_get_heartbeats() -> None:
 
 async def test_stream_deadline_ends_with_an_error_event_and_no_done() -> None:
     class Never:
-        async def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
+        async def stream(
+            self, *, message: str, context: SecurityContext
+        ) -> AsyncIterator[ChatEvent]:
             await asyncio.sleep(10)
             yield ChatEvent("token", {"text": "never"})
 
@@ -151,7 +158,9 @@ async def test_stream_deadline_ends_with_an_error_event_and_no_done() -> None:
 
 async def test_midstream_failure_is_reported_generically_in_band() -> None:
     class Breaks:
-        async def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
+        async def stream(
+            self, *, message: str, context: SecurityContext
+        ) -> AsyncIterator[ChatEvent]:
             yield ChatEvent("token", {"text": "partial"})
             raise RuntimeError("db password=hunter2")
 
@@ -165,7 +174,9 @@ async def test_midstream_failure_is_reported_generically_in_band() -> None:
 
 async def test_streams_are_not_cut_by_the_30s_request_deadline() -> None:
     class Takes:
-        async def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
+        async def stream(
+            self, *, message: str, context: SecurityContext
+        ) -> AsyncIterator[ChatEvent]:
             await asyncio.sleep(0.3)
             yield ChatEvent("token", {"text": "ok"})
 
@@ -180,7 +191,9 @@ async def test_client_disconnect_cancels_the_source_and_runs_its_cleanup() -> No
     state = {"closed": False}
 
     class Hangs:
-        async def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
+        async def stream(
+            self, *, message: str, context: SecurityContext
+        ) -> AsyncIterator[ChatEvent]:
             try:
                 yield ChatEvent("token", {"text": "first"})
                 await asyncio.sleep(30)

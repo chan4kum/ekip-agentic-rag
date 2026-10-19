@@ -16,6 +16,7 @@ members = [
     "ekip-observability",
     "ekip-persistence",
     "ekip-ratelimit",
+    "ekip-retrieval",
     "ekip-search",
     "ekip-workflows",
 ]
@@ -316,6 +317,7 @@ dependencies = [
     { name = "ekip-observability" },
     { name = "ekip-persistence" },
     { name = "ekip-ratelimit" },
+    { name = "ekip-retrieval" },
     { name = "ekip-search" },
     { name = "ekip-workflows" },
 ]
@@ -346,6 +348,7 @@ requires-dist = [
     { name = "ekip-observability", editable = "packages/observability" },
     { name = "ekip-persistence", editable = "packages/persistence" },
     { name = "ekip-ratelimit", editable = "packages/ratelimit" },
+    { name = "ekip-retrieval", editable = "packages/retrieval" },
     { name = "ekip-search", editable = "packages/search" },
     { name = "ekip-workflows", editable = "packages/workflows" },
 ]
@@ -373,8 +376,11 @@ dependencies = [
     { name = "ekip-config" },
     { name = "ekip-contracts" },
     { name = "ekip-identity" },
+    { name = "ekip-llm-gateway" },
     { name = "ekip-observability" },
     { name = "ekip-ratelimit" },
+    { name = "ekip-retrieval" },
+    { name = "ekip-search" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "opentelemetry-instrumentation-fastapi" },
@@ -389,8 +395,11 @@ requires-dist = [
     { name = "ekip-config", editable = "packages/config" },
     { name = "ekip-contracts", editable = "packages/contracts" },
     { name = "ekip-identity", editable = "packages/identity" },
+    { name = "ekip-llm-gateway", editable = "packages/llm-gateway" },
     { name = "ekip-observability", editable = "packages/observability" },
     { name = "ekip-ratelimit", editable = "packages/ratelimit" },
+    { name = "ekip-retrieval", editable = "packages/retrieval" },
+    { name = "ekip-search", editable = "packages/search" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.66b1,<0.67" },
@@ -558,6 +567,21 @@ requires-dist = [
     { name = "ekip-contracts", editable = "packages/contracts" },
     { name = "ekip-observability", editable = "packages/observability" },
     { name = "redis", specifier = ">=8.1.0" },
+]
+
+[[package]]
+name = "ekip-retrieval"
+version = "0.1.0"
+source = { editable = "packages/retrieval" }
+dependencies = [
+    { name = "ekip-contracts" },
+    { name = "ekip-observability" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ekip-contracts", editable = "packages/contracts" },
+    { name = "ekip-observability", editable = "packages/observability" },
 ]
 
 [[package]]

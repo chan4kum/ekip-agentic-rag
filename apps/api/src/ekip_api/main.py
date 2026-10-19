@@ -1,5 +1,5 @@
 import sys
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 
 from ekip_authorization.rbac import RbacAuthorizer
@@ -20,10 +20,9 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from redis.asyncio import Redis
 
-from ekip_api.adapters.demo_data import DEMO_CHUNKS
-from ekip_api.adapters.in_memory_retriever import InMemoryRetriever
 from ekip_api.adapters.probes import build_default_probes
 from ekip_api.adapters.redis_idempotency import RedisIdempotencyStore
+from ekip_api.adapters.retrieval_wiring import build_retriever
 from ekip_api.adapters.stub_chat import StubChatStreamer
 from ekip_api.body_limit import MaxBodySizeMiddleware
 from ekip_api.deadline import RequestDeadlineMiddleware
@@ -89,7 +88,9 @@ def create_app(
         )
         log = get_logger("ekip.api")
         log.info("startup", environment=settings.app_env)
-        yield  # later: open/close DB and OpenSearch pools here
+        yield
+        for close in closers:  # clients the retrieval backend opened
+            await close()
         if owned_redis is not None:
             await owned_redis.aclose()
         if owns_provider:
@@ -106,7 +107,10 @@ def create_app(
     )
     install_error_handlers(app)
     app.state.settings = settings
-    app.state.retriever = retriever or InMemoryRetriever(DEMO_CHUNKS)  # where adapters are chosen
+    closers: list[Callable[[], Awaitable[None]]] = []
+    if retriever is None:
+        retriever, closers = build_retriever(settings)  # where adapters are chosen
+    app.state.retriever = retriever
     app.state.chat_streamer = chat_streamer or StubChatStreamer(
         app.state.retriever, token_delay_s=settings.chat_stub_token_delay_s
     )

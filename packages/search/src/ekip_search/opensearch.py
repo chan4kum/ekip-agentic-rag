@@ -7,6 +7,7 @@ response body, which can echo document text.
 
 import asyncio
 import json
+import math
 import random
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
@@ -14,6 +15,7 @@ from urllib.parse import quote
 
 import httpx
 from ekip_contracts.documents import ContractError, Document, DocumentAcl
+from ekip_contracts.retrieval import RetrievedChunk, SearchScope
 from ekip_contracts.search_index import (
     IndexEntry,
     SearchIndexError,
@@ -22,9 +24,16 @@ from ekip_contracts.search_index import (
 )
 
 from ekip_search.mapping import MAPPING_VERSION, index_body, index_name_for
+from ekip_search.queries import tenant_and_acl_filter
 
 _RETRYABLE = {429, 502, 503, 504}
 BULK_BATCH = 200
+MAX_SEARCH_LIMIT = 200
+LEXICAL_FIELDS = ["title^2", "section_path^1.5", "content"]
+_HIT_FIELDS = [
+    "chunk_id", "document_id", "document_version", "title", "source_uri",
+    "section_path", "page_number", "content", "content_hash", "kind",
+]  # fmt: skip  # never "embedding": vectors are large and callers do not need them
 
 
 class OpenSearchChunkIndex:
@@ -165,6 +174,67 @@ class OpenSearchChunkIndex:
         )
         return int(r.json()["count"])
 
+    # ---- search (ChunkSearcher port) --------------------------------------------------------
+
+    async def lexical_search(
+        self, query: str, *, scope: SearchScope, limit: int
+    ) -> list[RetrievedChunk]:
+        _check_limit(limit)
+        if not query.strip() or not scope.matches_any_acl:
+            return []  # nothing to match, or a caller no ACL can name: skip the round trip
+        body = {
+            "size": limit,
+            "_source": _HIT_FIELDS,
+            "query": {
+                "bool": {
+                    "filter": tenant_and_acl_filter(scope.tenant_id, scope.user, scope.groups),
+                    "must": {
+                        "multi_match": {
+                            "query": query,
+                            "fields": LEXICAL_FIELDS,
+                            "type": "best_fields",
+                        }
+                    },
+                }
+            },
+        }
+        return await self._search(scope, body)
+
+    async def vector_search(
+        self, vector: Sequence[float], *, scope: SearchScope, limit: int
+    ) -> list[RetrievedChunk]:
+        _check_limit(limit)
+        if len(vector) != self._dims or not all(math.isfinite(x) for x in vector):
+            raise ContractError("query vector has the wrong size or is not finite")
+        if not scope.matches_any_acl:
+            return []
+        acl_filter = tenant_and_acl_filter(scope.tenant_id, scope.user, scope.groups)
+        body = {
+            "size": limit,
+            "_source": _HIT_FIELDS,
+            "query": {
+                "knn": {
+                    "embedding": {
+                        "vector": [float(x) for x in vector],
+                        "k": limit,
+                        # inside the knn clause: the graph search only visits permitted chunks
+                        "filter": {"bool": {"filter": acl_filter}},
+                    }
+                }
+            },
+        }
+        return await self._search(scope, body)
+
+    async def _search(self, scope: SearchScope, body: dict[str, Any]) -> list[RetrievedChunk]:
+        r = await self._call(
+            "POST",
+            f"/{self._index}/_search",
+            params={"routing": scope.tenant_id},
+            json_body=body,
+            ok={200},
+        )
+        return [_to_hit(h) for h in r.json()["hits"]["hits"]]
+
     # ---- internals --------------------------------------------------------------------------
 
     @staticmethod
@@ -298,3 +368,26 @@ class OpenSearchChunkIndex:
             if attempt + 1 < self._attempts:
                 await self._sleep(min(0.5 * 2**attempt * self._jitter(), 10.0))
         raise SearchIndexUnavailableError(f"search index unavailable ({last})")
+
+
+def _check_limit(limit: int) -> None:
+    if not 1 <= limit <= MAX_SEARCH_LIMIT:
+        raise ContractError(f"limit must be between 1 and {MAX_SEARCH_LIMIT}")
+
+
+def _to_hit(hit: dict[str, Any]) -> RetrievedChunk:
+    src = hit["_source"]
+    path = src.get("section_path") or ""
+    return RetrievedChunk(
+        chunk_id=src["chunk_id"],
+        document_id=src["document_id"],
+        text=src.get("content", ""),
+        score=max(float(hit.get("_score") or 0.0), 0.0),
+        document_version=src.get("document_version"),
+        title=src.get("title", ""),
+        source_uri=src.get("source_uri", ""),
+        section_path=tuple(p for p in path.split(" > ") if p),
+        page_number=src.get("page_number"),
+        content_hash=src.get("content_hash"),
+        kind=src.get("kind", "text"),
+    )

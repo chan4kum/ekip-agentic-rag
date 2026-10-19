@@ -137,3 +137,23 @@ def test_keycloak_has_a_healthcheck_and_is_dev_mode(compose: dict[str, Any]) -> 
     kc = compose["services"]["keycloak"]
     assert "healthcheck" in kc
     assert kc["command"][0] == "start-dev"  # dev-only service; production uses a built image
+
+
+@pytest.mark.parametrize("client_id", ["ekip-web", "ekip-test"])
+def test_tokens_carry_the_acl_identity(realm: dict[str, Any], client_id: str) -> None:
+    mappers = {m["name"]: m for m in client(realm, client_id)["protocolMappers"]}
+    principal, groups = mappers["principal"]["config"], mappers["groups"]["config"]
+    assert (principal["user.attribute"], principal["claim.name"]) == ("username", "principal")
+    assert groups["claim.name"] == "groups"
+    assert groups["full.path"] == "false"  # "eng", not "/eng": matches ACL group names
+    assert mappers["groups"]["protocolMapper"] == "oidc-group-membership-mapper"
+
+
+def test_dev_users_have_the_expected_groups(realm: dict[str, Any]) -> None:
+    assert {g["name"] for g in realm["groups"]} == {"eng", "ops"}
+    members = {u["username"]: set(u["groups"]) for u in realm["users"]}
+    assert members == {"alice": {"/eng"}, "bob": {"/eng"}, "carol": {"/eng", "/ops"}}
+
+
+def test_principal_comes_from_a_username_nobody_can_edit(realm: dict[str, Any]) -> None:
+    assert realm["editUsernameAllowed"] is False  # the ACL identity cannot be self-renamed

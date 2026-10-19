@@ -2,6 +2,7 @@ from typing import Annotated
 
 from ekip_contracts.authorization import Action
 from ekip_contracts.identity import SecurityContext
+from ekip_contracts.retrieval import SearchScope
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ekip_api.dependencies import get_retrieval_service, limit_requests, require_permission
@@ -25,7 +26,7 @@ async def search(
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 5,
 ) -> SearchResponse:
     try:
-        results = await service.search(q, tenant_id=ctx.tenant_id, limit=limit)
+        results = await service.search(q, scope=SearchScope.from_context(ctx), limit=limit)
     except InvalidQueryError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return SearchResponse(query=q.strip(), results=results)

@@ -43,7 +43,7 @@ Cross-cutting: OpenTelemetry · Langfuse · Prometheus/Grafana · Terraform · K
 | 2 | Identity and backend: OIDC/JWT validation (Keycloak), tenant isolation, RBAC, Redis rate limits, RFC 9457 errors, deadlines, idempotency, SSE chat, security regression suite | Done |
 | 3 | Single-document ingestion: hardened parsers (text/HTML/PDF/DOCX, images), structure-aware chunking, Gemini embeddings with cache, OpenSearch hybrid index with ACL fields, resumable `IngestDocument` pipeline | Done |
 | 4 | Incremental ingestion: change events, state-based out-of-order handling, Redpanda/Kafka consumer with lanes and DLQ, Temporal single-flight workflow, tenant-scoped embedding reuse, deletes, ACL changes, source reconciliation | Done |
-| 5 | Retrieval: hybrid search, reranking, citations, evaluation harness | Planned |
+| 5 | Retrieval: ACL-pushdown hybrid search (BM25 + kNN, RRF), optional reranker port, context assembly with numbered citations, evaluation harness with an access-leak gate | Done |
 | 6 | Single-agent RAG with LangGraph and checkpoints | Planned |
 | 7 | Multi-step agents: planner, verifier, budgets, human approval | Planned |
 | 7A | **MCP tool gateway**: allowlists, OAuth, token exchange, resilience, audit | Planned |
@@ -84,6 +84,14 @@ Security posture: RS256-only allowlist, JWKS cache with rotation, generic 401s, 
 - **Durable processing:** one Temporal workflow per document version (`USE_EXISTING`, so concurrent triggers run it once); `retryable` drives Temporal's retry policy; failures cross the boundary as codes.
 - **Cheap updates:** a tenant-scoped Redis embedding cache means editing one paragraph of a ten-section document re-embeds exactly one chunk.
 - **Reconciliation:** periodic source inventory diff repairs missed creates, edits, permission changes and deletes by publishing ordinary events; incomplete listings abort before any delete, and a mass-delete guard withholds suspicious deletions.
+
+## Retrieval (Phase 5)
+`query` + verified identity → **BM25 and kNN in parallel** (tenant and document ACL applied *inside* both queries) → RRF fusion → optional reranker → `ContextAssembler` → numbered, citable context.
+- **Access control is in the query, not after it:** the scope (tenant, user, groups) comes only from the verified token; a caller with no identity matches nothing. Restricted nearest neighbours cannot crowd out readable ones.
+- **Degrades without widening access:** one search failing falls back to the other (reported in the trace); a failing reranker keeps the fused order; a reranker can never add or repeat chunks.
+- **Context you can cite:** de-duplicated, capped per document, token-budgeted; retrieved text is escaped inside `<source id=n>` elements so it cannot pose as instructions; `check_citations` flags `[n]` markers the model invented.
+- **Measured, not assumed:** `scripts/eval_retrieval.py` compares BM25, vector, hybrid and hybrid+rerank on a versioned dataset (Recall@K, MRR, NDCG@K) and **fails if any variant returns a passage the caller may not read**. On the small synthetic set with real Gemini embeddings, the baseline term-coverage reranker did not help, so no reranker is enabled by default.
+- **Honest limits:** 15 documents / 36 queries is a regression gate and a relative comparison, not a production quality estimate.
 
 ## Repository layout
 ```

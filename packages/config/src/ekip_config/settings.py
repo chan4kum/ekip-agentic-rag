@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: SecretStr | None = None
 
+    # Retrieval backend. "memory" = a small seeded demo corpus (no services needed: tests, smoke).
+    # "opensearch" = the real index filled by the ingestion pipeline.
+    retrieval_backend: Literal["memory", "opensearch"] = "memory"
+
     # Embeddings: a different provider/model lifecycle from the chat LLM (see ADR on model_version).
     embedding_provider: Literal["gemini", "hashing"] = "gemini"
     embedding_model: str = "gemini-embedding-001"

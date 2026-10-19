@@ -43,6 +43,8 @@ def claims(**overrides: Any) -> dict[str, Any]:
         "tenant_id": "tenant-dev",
         "roles": ["ekip-user"],
         "azp": "ekip-web",
+        "principal": "alice",
+        "groups": ["eng"],
     }
     base.update(overrides)
     return {k: v for k, v in base.items() if v is not None}

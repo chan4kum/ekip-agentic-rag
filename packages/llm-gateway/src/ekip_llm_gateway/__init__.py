@@ -8,6 +8,7 @@ from ekip_llm_gateway.cached import (
 )
 from ekip_llm_gateway.gemini import GeminiEmbedder
 from ekip_llm_gateway.hashing import HashingEmbedder
+from ekip_llm_gateway.http_reranker import HttpReranker
 
 __all__ = [
     "CacheStats",
@@ -15,5 +16,6 @@ __all__ = [
     "EmbeddingCache",
     "GeminiEmbedder",
     "HashingEmbedder",
+    "HttpReranker",
     "InMemoryEmbeddingCache",
 ]

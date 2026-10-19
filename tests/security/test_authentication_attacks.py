@@ -218,19 +218,22 @@ async def test_identity_headers_cannot_grant_roles_or_change_tenant(
 
 def _ids_from(response: httpx.Response, route: tuple[str, str]) -> set[str]:
     if route[1].endswith("search"):
-        return {x["chunk_id"] for x in response.json()["results"]}
+        return {x["source_uri"] for x in response.json()["results"]}
     ids: set[str] = set()
     for block in response.text.split("\n\n"):
         lines = block.split("\n")
         if lines[0] == "event: citations":
-            ids |= {x["chunk_id"] for x in json.loads(lines[1][6:])["results"]}
+            ids |= {x["source_uri"] for x in json.loads(lines[1][6:])["results"]}
     return ids
 
 
 @pytest.mark.parametrize("route", list(PROTECTED), ids=lambda r: f"{r[0]} {r[1]}")
 @pytest.mark.parametrize(
     ("tenant", "prefix", "foreign_prefix"),
-    [("tenant-dev", "dev-", "oth-"), ("tenant-other", "oth-", "dev-")],
+    [
+        ("tenant-dev", "/tenant-dev/", "/tenant-other/"),
+        ("tenant-other", "/tenant-other/", "/tenant-dev/"),
+    ],
 )
 async def test_tenants_never_see_each_others_data_even_when_they_ask(
     client: httpx.AsyncClient,
@@ -246,8 +249,8 @@ async def test_tenants_never_see_each_others_data_even_when_they_ask(
         extra["params"] = {"q": "torque", "limit": 20, "tenant_id": other, "tenant": other}
     ids = _ids_from(await send(client, route, IDP.token(tenant_id=tenant), **extra), route)
     assert ids, "the caller's own data should be found"
-    assert all(i.startswith(prefix) for i in ids)
-    assert not any(i.startswith(foreign_prefix) for i in ids)
+    assert all(prefix in i for i in ids)
+    assert not any(foreign_prefix in i for i in ids)
 
 
 async def test_chat_rejects_a_tenant_in_the_body(client: httpx.AsyncClient) -> None:

@@ -1,22 +1,33 @@
-"""Placeholder answer streamer (Phase 2). NO language model: it only restates what retrieval found.
-Replaced in Phase 6 by the LangGraph agent behind the same ChatStreamer port."""
+"""Placeholder answer streamer (Phase 2). NO language model: it only restates what retrieval found,
+with numbered citations built by the same ContextAssembler the real agent will use (Phase 6).
+Replaced by the LangGraph agent behind the same ChatStreamer port."""
 
 import asyncio
 from collections.abc import AsyncIterator
 
 from ekip_contracts.chat import ChatEvent
-from ekip_contracts.retrieval import Retriever
+from ekip_contracts.identity import SecurityContext
+from ekip_contracts.retrieval import Retriever, SearchScope
+from ekip_retrieval import ContextAssembler, ContextConfig, InvalidQueryError
 
 
 class StubChatStreamer:
     def __init__(self, retriever: Retriever, *, token_delay_s: float = 0.0) -> None:
         self._retriever = retriever
+        self._assembler = ContextAssembler(ContextConfig(budget_tokens=1500, max_per_document=2))
         self._delay = token_delay_s  # a "typing" pause; lets us observe real streaming end to end
 
-    async def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
-        found = await self._retriever.search(message, tenant_id=tenant_id, limit=3)
-        if found:
-            body = "Relevant passages: " + " | ".join(c.text for c in found)
+    async def stream(self, *, message: str, context: SecurityContext) -> AsyncIterator[ChatEvent]:
+        scope = SearchScope.from_context(context)
+        try:
+            found = await self._retriever.search(message, scope=scope, limit=5)
+        except InvalidQueryError:
+            found = []
+        bundle = self._assembler.assemble(found)
+        if bundle.blocks:
+            body = "Relevant passages: " + " | ".join(
+                f"{b.text} [{b.citation.number}]" for b in bundle.blocks[:3]
+            )
         else:
             body = "No relevant documents were found for your question."
         for word in ("[stub answer, no model yet]", *body.split()):
@@ -25,5 +36,18 @@ class StubChatStreamer:
                 await asyncio.sleep(self._delay)
         yield ChatEvent(
             "citations",
-            {"results": [{"chunk_id": c.chunk_id, "document_id": c.document_id} for c in found]},
+            {
+                "results": [
+                    {
+                        "number": c.number,
+                        "chunk_id": c.chunk_id,
+                        "document_id": c.document_id,
+                        "document_version": c.document_version,
+                        "title": c.title,
+                        "source_uri": c.source_uri,
+                        "page_number": c.page_number,
+                    }
+                    for c in bundle.citations
+                ]
+            },
         )

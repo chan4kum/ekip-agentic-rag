@@ -4,6 +4,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from ekip_contracts.identity import SecurityContext
+
 
 @dataclass(frozen=True)
 class ChatEvent:
@@ -14,7 +16,8 @@ class ChatEvent:
 
 
 class ChatStreamer(Protocol):
-    def stream(self, *, message: str, tenant_id: str) -> AsyncIterator[ChatEvent]:
-        """Yield events for one question. `tenant_id` comes from the validated token only (I-4).
+    def stream(self, *, message: str, context: SecurityContext) -> AsyncIterator[ChatEvent]:
+        """Yield events for one question. `context` is built from the validated token only (I-4);
+        retrieval scope (tenant + user + groups) is derived from it, never from the request.
         Must be cancellable: the caller cancels it when the client disconnects."""
         ...
