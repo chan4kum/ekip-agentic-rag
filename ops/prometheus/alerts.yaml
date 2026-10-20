@@ -1,0 +1,159 @@
+# Prometheus alerting rules implementing the masterplan SLOs (section 11).
+# The targets are engineering starting points to validate by benchmarking, not promises.
+# tests/unit/test_observability_alerts.py checks that every metric referenced here is defined by
+# ekip_observability.metrics and that every runbook annotation points at a file that exists.
+groups:
+  - name: ekip-slo-availability
+    rules:
+      - alert: EkipApiErrorBudgetFastBurn
+        expr: |
+          (
+            sum(rate(ekip_http_requests_total{status=~"5.."}[5m])) / sum(rate(ekip_http_requests_total[5m])) > (14.4 * 0.001)
+          ) and (
+            sum(rate(ekip_http_requests_total{status=~"5.."}[1h])) / sum(rate(ekip_http_requests_total[1h])) > (14.4 * 0.001)
+          )
+        for: 2m
+        labels: {severity: page, slo: availability}
+        annotations:
+          summary: API burns the 99.9% availability error budget about 14x too fast
+          runbook: docs/runbooks/llm-provider-outage.md
+      - alert: EkipApiErrorBudgetSlowBurn
+        expr: |
+          (
+            sum(rate(ekip_http_requests_total{status=~"5.."}[30m])) / sum(rate(ekip_http_requests_total[30m])) > (6 * 0.001)
+          ) and (
+            sum(rate(ekip_http_requests_total{status=~"5.."}[6h])) / sum(rate(ekip_http_requests_total[6h])) > (6 * 0.001)
+          )
+        for: 15m
+        labels: {severity: ticket, slo: availability}
+        annotations:
+          summary: API burns the 99.9% availability error budget about 6x too fast
+          runbook: docs/runbooks/llm-provider-outage.md
+  - name: ekip-slo-latency
+    rules:
+      - alert: EkipSimpleRagLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(ekip_chat_request_duration_seconds_bucket{mode="simple"}[10m]))) > 5
+        for: 10m
+        labels: {severity: ticket, slo: latency}
+        annotations:
+          summary: Simple RAG P95 latency above the 5 s target
+          runbook: docs/runbooks/llm-provider-outage.md
+      - alert: EkipFirstTokenP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(ekip_chat_first_token_seconds_bucket[10m]))) > 2
+        for: 10m
+        labels: {severity: ticket, slo: latency}
+        annotations:
+          summary: Time to first streamed token P95 above the 2 s target
+          runbook: docs/runbooks/llm-provider-outage.md
+      - alert: EkipRetrievalLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(ekip_retrieval_duration_seconds_bucket[10m]))) > 1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: Retrieval P95 latency above 1 s
+          runbook: docs/runbooks/index-rebuild.md
+  - name: ekip-ingestion
+    rules:
+      - alert: EkipIngestionFreshnessP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(ekip_ingest_freshness_seconds_bucket[30m]))) > 300
+        for: 15m
+        labels: {severity: ticket, slo: freshness}
+        annotations:
+          summary: Incremental document freshness P95 above 5 minutes
+          runbook: docs/runbooks/ingestion-backlog.md
+      - alert: EkipConsumerLagHigh
+        expr: ekip_ingest_consumer_lag > 1000
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: Change consumer is more than 1000 messages behind
+          runbook: docs/runbooks/ingestion-backlog.md
+      - alert: EkipDeadLetterQueueNotEmpty
+        expr: ekip_ingest_dlq_depth > 0
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: Messages have been waiting in the dead-letter topic for 30 minutes
+          runbook: docs/runbooks/dlq-replay.md
+      - alert: EkipDeadLetterQueueGrowing
+        expr: ekip_ingest_dlq_depth > 100
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: More than 100 poison messages in the dead-letter topic
+          runbook: docs/runbooks/dlq-replay.md
+      - alert: EkipIngestFailureRatioHigh
+        expr: |
+          sum(rate(ekip_ingest_documents_total{outcome=~"failed|dead_lettered"}[15m])) / sum(rate(ekip_ingest_documents_total[15m])) > 0.01
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 1% of ingested documents fail
+          runbook: docs/runbooks/ingestion-backlog.md
+      - alert: EkipPermissionPropagationSlow
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(ekip_acl_propagation_seconds_bucket[15m]))) > 60
+        for: 5m
+        labels: {severity: page, slo: security-freshness}
+        annotations:
+          summary: Permission changes take more than 60 s to reach the index
+          runbook: docs/runbooks/permission-revocation-incident.md
+  - name: ekip-llm-agents-cache
+    rules:
+      - alert: EkipLlmErrorRateHigh
+        expr: |
+          sum(rate(ekip_llm_errors_total[10m])) / (sum(rate(ekip_llm_request_duration_seconds_count[10m])) > 0) > 0.05
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: More than 5% of model provider calls fail
+          runbook: docs/runbooks/llm-provider-outage.md
+      - alert: EkipLlmSpendSpike
+        expr: |
+          sum(increase(ekip_llm_cost_usd_total[1h])) > 3 * sum(increase(ekip_llm_cost_usd_total[1h] offset 1d))
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: LLM spend is three times what it was at this hour yesterday
+          runbook: docs/runbooks/llm-provider-outage.md
+      - alert: EkipAgentBudgetTruncationsHigh
+        expr: |
+          sum(rate(ekip_agent_budget_truncations_total[30m])) / sum(rate(ekip_agent_runs_total[30m])) > 0.1
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 10% of agent runs hit an execution budget
+          runbook: docs/runbooks/llm-provider-outage.md
+      - alert: EkipAgentFailureRatioHigh
+        expr: |
+          sum(rate(ekip_agent_runs_total{status="failed"}[15m])) / sum(rate(ekip_agent_runs_total[15m])) > 0.05
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 5% of agent runs end in failure
+          runbook: docs/runbooks/llm-provider-outage.md
+      - alert: EkipRetrievalDegraded
+        expr: sum(rate(ekip_retrieval_degraded_total[10m])) > 0
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: Retrieval has been running in a degraded (weaker) mode for 15 minutes
+          runbook: docs/runbooks/index-rebuild.md
+      - alert: EkipCacheBlockedEntries
+        expr: sum(increase(ekip_cache_events_total{event="blocked"}[15m])) > 0
+        for: 0m
+        labels: {severity: ticket}
+        annotations:
+          summary: The cache refused to serve entries (permission or version mismatch); check invalidation
+          runbook: docs/runbooks/cache-invalidation.md
+      - alert: EkipRateLimitRejectionsHigh
+        expr: sum(rate(ekip_rate_limit_rejections_total[10m])) > 5
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: Sustained rate-limit rejections (capacity or abuse)
+          runbook: docs/runbooks/llm-provider-outage.md

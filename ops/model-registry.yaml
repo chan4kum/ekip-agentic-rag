@@ -1,0 +1,35 @@
+# Model and prompt registry (data). The `prompts` section is generated:
+#   uv run --no-sync python scripts/update_registry.py
+# CI fails when a prompt's text changes without a version bump (tests/unit/test_llmops_registry).
+version: 1
+models:
+  chat:
+    provider: openai-compatible
+    name: gpt-4.1-mini
+    purpose: answer generation, query rewriting, planning, groundedness checks
+    temperature: 0.0
+    fallback: []
+    notes: Any OpenAI-compatible endpoint (OpenAI, Groq, DeepSeek, vLLM) via LLM_BASE_URL.
+  embedding:
+    provider: gemini
+    name: gemini-embedding-001
+    dimensions: 768
+    notes: Changing name or dimensions needs a new index version (re-embed); see runbook
+      reindex.
+  reranker:
+    provider: local
+    name: term-coverage
+    notes: Optional HTTP cross-encoder (ekip_llm_gateway.HttpReranker); evaluate before enabling.
+prompts:
+  answer:
+    version: answer-v3
+    sha256: 94539f732c432f3527dd9b69ef8adda3fe51c5a1a89fe524a20b4f11275858d5
+  groundedness:
+    version: ground-v1
+    sha256: ea2ec50f691416d75315c3da93d71da03c520c67d4abb4c0abd01872a244dd1c
+  plan:
+    version: plan-v1
+    sha256: a267b99ee0e09a05cf669d1f16eaec74d6aaaef66ba8b7198d27aef0ccf2c35b
+  rewrite:
+    version: rewrite-v1
+    sha256: 758fd1abc89e5075f04c2426b05573223bd22b51aead3c1ce41e29b6824533f7
