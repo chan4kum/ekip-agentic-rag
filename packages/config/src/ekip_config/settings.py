@@ -25,6 +25,17 @@ class Settings(BaseSettings):
     llm_base_url: AnyHttpUrl = AnyHttpUrl("https://api.groq.com/openai/v1")
     llm_model: str = ""
     llm_api_key: SecretStr | None = None
+    # OpenAI's newer models want `max_completion_tokens` and reject a custom temperature;
+    # Groq, DeepSeek and vLLM keep `max_tokens`.
+    llm_limit_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    llm_send_temperature: bool = True
+
+    # Who answers /api/v1/chat. "stub" = the Phase 2 placeholder (no model needed: tests, smoke).
+    # "agent" = the LangGraph agent (needs LLM_MODEL + LLM_API_KEY). Chosen explicitly so a
+    # missing key fails at startup instead of silently serving the stub.
+    chat_backend: Literal["stub", "agent"] = "stub"
+    # Where conversation memory lives. "memory" is per process (lost on restart).
+    conversation_store: Literal["memory", "postgres"] = "memory"
 
     # Retrieval backend. "memory" = a small seeded demo corpus (no services needed: tests, smoke).
     # "opensearch" = the real index filled by the ingestion pipeline.

@@ -7,7 +7,7 @@ from contextlib import suppress
 from typing import Any, Literal
 
 # Event names are a closed set chosen by the server; user text only ever travels inside JSON.
-EventName = Literal["meta", "token", "citations", "done", "error"]
+EventName = Literal["meta", "token", "citations", "status", "done", "error"]
 
 HEARTBEAT = b": keep-alive\n\n"  # an SSE comment: ignored by clients, keeps proxies from idling out
 

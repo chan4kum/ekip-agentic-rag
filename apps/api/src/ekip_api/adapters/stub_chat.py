@@ -10,6 +10,8 @@ from ekip_contracts.identity import SecurityContext
 from ekip_contracts.retrieval import Retriever, SearchScope
 from ekip_retrieval import ContextAssembler, ContextConfig, InvalidQueryError
 
+from ekip_api.adapters.events import citations_event
+
 
 class StubChatStreamer:
     def __init__(self, retriever: Retriever, *, token_delay_s: float = 0.0) -> None:
@@ -17,7 +19,9 @@ class StubChatStreamer:
         self._assembler = ContextAssembler(ContextConfig(budget_tokens=1500, max_per_document=2))
         self._delay = token_delay_s  # a "typing" pause; lets us observe real streaming end to end
 
-    async def stream(self, *, message: str, context: SecurityContext) -> AsyncIterator[ChatEvent]:
+    async def stream(
+        self, *, message: str, context: SecurityContext, conversation_id: str | None = None
+    ) -> AsyncIterator[ChatEvent]:
         scope = SearchScope.from_context(context)
         try:
             found = await self._retriever.search(message, scope=scope, limit=5)
@@ -34,20 +38,4 @@ class StubChatStreamer:
             yield ChatEvent("token", {"text": word + " "})
             if self._delay:
                 await asyncio.sleep(self._delay)
-        yield ChatEvent(
-            "citations",
-            {
-                "results": [
-                    {
-                        "number": c.number,
-                        "chunk_id": c.chunk_id,
-                        "document_id": c.document_id,
-                        "document_version": c.document_version,
-                        "title": c.title,
-                        "source_uri": c.source_uri,
-                        "page_number": c.page_number,
-                    }
-                    for c in bundle.citations
-                ]
-            },
-        )
+        yield citations_event(bundle.citations)

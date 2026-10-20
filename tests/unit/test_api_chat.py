@@ -118,7 +118,7 @@ async def test_invalid_bodies_are_422(body: dict[str, object]) -> None:
 async def test_message_text_cannot_inject_sse_events() -> None:
     class Evil:
         async def stream(
-            self, *, message: str, context: SecurityContext
+            self, *, message: str, context: SecurityContext, conversation_id: str | None = None
         ) -> AsyncIterator[ChatEvent]:
             yield ChatEvent("token", {"text": "a\n\nevent: done\ndata: {}\n\n"})
 
@@ -130,7 +130,7 @@ async def test_message_text_cannot_inject_sse_events() -> None:
 async def test_quiet_streams_get_heartbeats() -> None:
     class Slow:
         async def stream(
-            self, *, message: str, context: SecurityContext
+            self, *, message: str, context: SecurityContext, conversation_id: str | None = None
         ) -> AsyncIterator[ChatEvent]:
             await asyncio.sleep(0.3)
             yield ChatEvent("token", {"text": "late"})
@@ -144,7 +144,7 @@ async def test_quiet_streams_get_heartbeats() -> None:
 async def test_stream_deadline_ends_with_an_error_event_and_no_done() -> None:
     class Never:
         async def stream(
-            self, *, message: str, context: SecurityContext
+            self, *, message: str, context: SecurityContext, conversation_id: str | None = None
         ) -> AsyncIterator[ChatEvent]:
             await asyncio.sleep(10)
             yield ChatEvent("token", {"text": "never"})
@@ -159,7 +159,7 @@ async def test_stream_deadline_ends_with_an_error_event_and_no_done() -> None:
 async def test_midstream_failure_is_reported_generically_in_band() -> None:
     class Breaks:
         async def stream(
-            self, *, message: str, context: SecurityContext
+            self, *, message: str, context: SecurityContext, conversation_id: str | None = None
         ) -> AsyncIterator[ChatEvent]:
             yield ChatEvent("token", {"text": "partial"})
             raise RuntimeError("db password=hunter2")
@@ -175,7 +175,7 @@ async def test_midstream_failure_is_reported_generically_in_band() -> None:
 async def test_streams_are_not_cut_by_the_30s_request_deadline() -> None:
     class Takes:
         async def stream(
-            self, *, message: str, context: SecurityContext
+            self, *, message: str, context: SecurityContext, conversation_id: str | None = None
         ) -> AsyncIterator[ChatEvent]:
             await asyncio.sleep(0.3)
             yield ChatEvent("token", {"text": "ok"})
@@ -192,7 +192,7 @@ async def test_client_disconnect_cancels_the_source_and_runs_its_cleanup() -> No
 
     class Hangs:
         async def stream(
-            self, *, message: str, context: SecurityContext
+            self, *, message: str, context: SecurityContext, conversation_id: str | None = None
         ) -> AsyncIterator[ChatEvent]:
             try:
                 yield ChatEvent("token", {"text": "first"})

@@ -432,3 +432,26 @@ Dedupe (hash or normalised text), per-document cap, token budget (chars/4 until 
 
 ## Gate 5.7 - Evaluation
 Offline (hashing embedder): hybrid recall 1.00 vs BM25 0.97 vs vector 0.86. Live (OpenSearch + Gemini): vector 1.00/MRR 1.00, hybrid 1.00/0.92, BM25 0.97/0.89, hybrid+term-coverage 0.97/0.86; 0 leaks everywhere. Reading: with a real embedding model, vector wins on this small paraphrase-heavy set; the baseline reranker hurts, so none is default. Live latency (~550 ms) is the uncached Gemini query embedding. Do not generalise from 36 queries.
+
+# Phase 6 - Single-agent RAG
+
+## Gates 6.1-6.4 - State, router, retrieve and answer nodes
+LangGraph `StateGraph` over a typed `AgentState`. Nodes are factories that receive their dependencies and return *partial updates*; `check_update` rejects protected keys (`question`, `security`, `conversation_id`) and unknown keys, so no node can widen who is asking. Routing is plain functions of the state (testable without a model). The retrieve node builds `SearchScope` only from the verified `SecurityContext`. No readable context means no model call and a fixed "insufficient evidence" outcome. Prompts are versioned (`answer-v2`); retrieved text and history reach the model escaped, as data.
+
+## Gate 6.5 - Verify node
+Checks that every `[n]` points at a source we supplied and that at least one exists; a rejected draft is erased from the state. **It proves citation validity, not groundedness** (that the source supports the claim); groundedness belongs to the Phase 7 verifier and the evaluation suite.
+
+## Gate 6.6 - Graph
+classify -> (refuse | retrieve -> answer -> verify) -> finalize, with a step budget. `finalize` guarantees no run ends RUNNING and that every non-answer has a fixed, safe, user-facing message.
+
+## Gates 6.7a-6.7b - Conversation memory
+Key = (tenant, user subject from the token, conversation id); a guessed id yields an empty history. Only ANSWERED turns are stored, never retrieved passages. Memory is best effort: store failures degrade to "no history" and never fail an answer. History is escaped data in the prompt with old `[n]` markers stripped. LangGraph checkpoints are deferred to Phase 7.
+
+## Gate 6.8 - Query rewriting
+Follow-ups ("and the other bolt?") are rewritten into a standalone *search string* using the history. Scope is untouched; any failure or unusable reply falls back to the original question; no history means no model call. The answer prompt still uses the user's original wording.
+
+## Gate 6.9 - OpenAI-compatible chat adapter
+One adapter for OpenAI, Groq, DeepSeek and vLLM (`/chat/completions`). Errors carry only the status, never the body or key. Retries only transient failures. `limit_field` / `send_temperature` handle OpenAI's newer models (`max_completion_tokens`, no custom temperature). Verified live once against `gpt-4.1-mini`: ping plus one grounded agent question (cited correctly).
+
+## Gate 6.10 - API wiring
+`CHAT_BACKEND=stub|agent` (default stub; `agent` fails at startup without model and key). The graph runs to completion, then the verified answer streams in chunks with a `citations` event (only cited sources) and a `status` event. `CONVERSATION_STORE=memory|postgres`; the Postgres pool opens in the app lifespan. **Known gaps:** no token-by-token model streaming (unverified text would be shown); kNN weak neighbours still need a relevance floor; groundedness is not checked; full live end-to-end run and Compose rebuild are the close-out step.

@@ -20,6 +20,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from redis.asyncio import Redis
 
+from ekip_api.adapters.agent_wiring import build_agent_streamer
 from ekip_api.adapters.probes import build_default_probes
 from ekip_api.adapters.redis_idempotency import RedisIdempotencyStore
 from ekip_api.adapters.retrieval_wiring import build_retriever
@@ -77,6 +78,9 @@ def create_app(
         service="ekip-api", environment=settings.app_env, exporter=settings.tracing_exporter
     )
 
+    closers: list[Callable[[], Awaitable[None]]] = []  # shutdown hooks for clients we opened
+    openers: list[Callable[[], Awaitable[None]]] = []  # startup hooks (need the event loop)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging(
@@ -88,6 +92,8 @@ def create_app(
         )
         log = get_logger("ekip.api")
         log.info("startup", environment=settings.app_env)
+        for open_ in openers:  # resources that need the running event loop (e.g. a DB pool)
+            await open_()
         yield
         for close in closers:  # clients the retrieval backend opened
             await close()
@@ -107,13 +113,20 @@ def create_app(
     )
     install_error_handlers(app)
     app.state.settings = settings
-    closers: list[Callable[[], Awaitable[None]]] = []
     if retriever is None:
-        retriever, closers = build_retriever(settings)  # where adapters are chosen
+        retriever, retriever_closers = build_retriever(settings)  # where adapters are chosen
+        closers.extend(retriever_closers)
     app.state.retriever = retriever
-    app.state.chat_streamer = chat_streamer or StubChatStreamer(
-        app.state.retriever, token_delay_s=settings.chat_stub_token_delay_s
-    )
+    if chat_streamer is None:
+        if settings.chat_backend == "agent":
+            chat_streamer, agent_openers, agent_closers = build_agent_streamer(settings, retriever)
+            openers.extend(agent_openers)
+            closers.extend(agent_closers)
+        else:
+            chat_streamer = StubChatStreamer(
+                retriever, token_delay_s=settings.chat_stub_token_delay_s
+            )
+    app.state.chat_streamer = chat_streamer
     app.state.token_validator = token_validator or JwtTokenValidator(
         issuer=str(settings.oidc_issuer).rstrip("/"),
         audience=settings.oidc_audience,
