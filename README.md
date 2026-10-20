@@ -65,7 +65,7 @@ boundaries in CI.
 | 3 | Single-document ingestion: hardened parsers, structure-aware chunking, embeddings with cache, OpenSearch hybrid index with ACL fields | Done |
 | 4 | Incremental ingestion: change events, out-of-order handling, Kafka consumer with lanes and DLQ, Temporal workflows, deletes, ACL changes, reconciliation | Done |
 | 5 | Retrieval: ACL-pushdown hybrid search, optional reranker, cited context assembly, evaluation harness with an access-leak gate | Done |
-| 6 | Single-agent RAG: LangGraph agent, conversation memory, query rewriting, OpenAI-compatible model, `/api/v1/chat` wiring | **Built; live end-to-end validation pending** |
+| 6 | Single-agent RAG: LangGraph agent, conversation memory, query rewriting, OpenAI-compatible model, `/api/v1/chat` wiring | Done |
 | 7 | Multi-step agents: planner, groundedness verifier, budgets, human approval, durable checkpoints | Planned |
 | 7A | **MCP tool gateway**: allowlists, OAuth, token exchange, resilience, audit | Planned |
 | 8+ | Caching, guardrails, LLMOps, observability, scale validation, Kubernetes | Planned |

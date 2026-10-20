@@ -72,7 +72,10 @@ pass "per-user rate limit answers 429 with Retry-After under a burst"
 
 # SSE must stream THROUGH the edge: the first token must arrive well before the stream ends.
 # (The stub answer takes several seconds; a buffering proxy would deliver everything at the end.)
-BOB_TOKEN="$BOB" python3 - "$EDGE" <<'PY' || fail "chat stream must be delivered incrementally through the edge"
+# With CHAT_BACKEND=agent the verified answer arrives in one burst (it is checked before it is
+# shown), so the timing assertion applies to the stub only; the agent must still end with a status.
+CHAT_BACKEND=$(in_api "import os; print(os.environ.get('CHAT_BACKEND', 'stub'))")
+BOB_TOKEN="$BOB" CHAT_BACKEND="$CHAT_BACKEND" python3 - "$EDGE" <<'PY' || fail "chat stream must be delivered incrementally through the edge"
 import json, os, sys, time, urllib.request
 
 req = urllib.request.Request(
@@ -93,9 +96,12 @@ assert names[0] == "meta" and names[-1] == "done" and "token" in names and "cita
 first_token = next(t for n, t in seen if n == "token")
 done = seen[-1][1]
 print(f"first token after {first_token:.2f}s, done after {done:.2f}s")
+if os.environ["CHAT_BACKEND"] == "agent":
+    assert "status" in names, names  # the agent always reports how the run ended
+    sys.exit(0)
 assert done - first_token >= 1.0, f"stream looks buffered: first token {first_token:.2f}s, done {done:.2f}s"
 PY
-pass "chat streams incrementally (SSE) through the edge and only returns the caller's tenant data"
+pass "chat is delivered as SSE through the edge (incrementally for the stub; ends with a status for the agent)"
 [ "$(head -c 1100000 /dev/zero | curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' --data-binary @- "$EDGE/api/v1/chat")" = 413 ] \
   || fail "an oversized chat body must be rejected with 413 (the app enforces it: the stream route bypasses edge buffering)"
 pass "oversized chat body is rejected (413) by the app"
