@@ -1,0 +1,14 @@
+[project]
+name = "ekip-caching"
+version = "0.1.0"
+description = "Response and retrieval caches with safe, versioned keys"
+requires-python = ">=3.12"
+dependencies = ["ekip-contracts", "ekip-observability", "redis>=8.1.0"]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+ekip-observability = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
