@@ -2,7 +2,15 @@
 
 from collections.abc import Awaitable, Callable
 
-from ekip_agents import LLMQueryRewriter, RuleBasedRouter, build_agent_graph
+from ekip_agents import (
+    Budget,
+    LLMGroundednessChecker,
+    LLMPlanner,
+    LLMQueryRewriter,
+    RuleBasedRouter,
+    build_agent_graph,
+    create_checkpointer,
+)
 from ekip_config.settings import Settings
 from ekip_contracts.chat import ChatStreamer
 from ekip_contracts.retrieval import Retriever
@@ -28,16 +36,40 @@ def build_agent_streamer(
         limit_field=settings.llm_limit_field,
         send_temperature=settings.llm_send_temperature,
     )
+    if settings.agent_approval:
+        # a paused run needs someone to approve it, and the chat API has no endpoint for that yet
+        raise ValueError("AGENT_APPROVAL is not available through the chat API in this phase")
     store, deferred = build_conversation_store(settings)
+    saver, checkpointer = create_checkpointer(
+        settings.agent_checkpointer, str(settings.database_url)
+    )
+    budget = Budget(
+        max_steps=settings.agent_max_steps,
+        max_retrievals=settings.agent_max_retrievals,
+        max_model_calls=settings.agent_max_model_calls,
+        max_seconds=settings.agent_max_seconds,
+    )
     graph = build_agent_graph(
         router=RuleBasedRouter(),
         retriever=retriever,
         model=model,
         store=store,
         rewriter=LLMQueryRewriter(model),
+        planner=(
+            LLMPlanner(model, max_subtasks=settings.agent_max_subtasks)
+            if settings.agent_multistep
+            else None
+        ),
+        grounding=LLMGroundednessChecker(model) if settings.agent_groundedness else None,
+        budget=budget,
+        max_steps=budget.max_steps,
+        checkpointer=saver,
     )
     openers: list[Hook] = [deferred.open] if deferred is not None else []
     closers: list[Hook] = [model.aclose]
     if deferred is not None:
         closers.append(deferred.aclose)
-    return AgentChatStreamer(graph), openers, closers
+    if checkpointer is not None:
+        openers.append(checkpointer.open)
+        closers.append(checkpointer.aclose)
+    return AgentChatStreamer(graph, checkpointed=saver is not None), openers, closers

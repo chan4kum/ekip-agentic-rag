@@ -3,7 +3,7 @@ name = "ekip"
 version = "0.1.0"
 description = "Enterprise Knowledge Intelligence Platform: agentic RAG"
 requires-python = ">=3.12,<3.13"
-dependencies = ["ekip-config", "ekip-observability", "ekip-contracts", "ekip-identity", "ekip-authorization", "ekip-ratelimit", "ekip-persistence", "ekip-ingestion", "ekip-llm-gateway", "ekip-search", "ekip-messaging", "ekip-workflows", "ekip-retrieval", "ekip-agents", "ekip-api"]         # workspace packages / runtime deps are added per step
+dependencies = ["ekip-config", "ekip-observability", "ekip-contracts", "ekip-identity", "ekip-authorization", "ekip-ratelimit", "ekip-persistence", "ekip-ingestion", "ekip-llm-gateway", "ekip-search", "ekip-messaging", "ekip-workflows", "ekip-retrieval", "ekip-agents", "ekip-tools", "ekip-caching", "ekip-guardrails", "ekip-mcp-docs", "ekip-api"]         # workspace packages / runtime deps are added per step
 
 [dependency-groups]
 dev = [
@@ -36,7 +36,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "S"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = "packages/config/src:packages/observability/src:packages/contracts/src:packages/identity/src:packages/authorization/src:packages/ratelimit/src:packages/persistence/src:packages/ingestion/src:packages/llm-gateway/src:packages/search/src:packages/messaging/src:packages/workflows/src:packages/retrieval/src:packages/agents/src:apps/api/src:tests/support"
+mypy_path = "packages/config/src:packages/observability/src:packages/contracts/src:packages/identity/src:packages/authorization/src:packages/ratelimit/src:packages/persistence/src:packages/ingestion/src:packages/llm-gateway/src:packages/search/src:packages/messaging/src:packages/workflows/src:packages/retrieval/src:packages/agents/src:packages/tools/src:packages/caching/src:packages/guardrails/src:apps/mcp-servers/docs/src:apps/api/src:tests/support"
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
@@ -62,6 +62,10 @@ members = [
     "packages/workflows",
     "packages/retrieval",
     "packages/agents",
+    "packages/tools",
+    "packages/caching",
+    "packages/guardrails",
+    "apps/mcp-servers/docs",
 ]
 
 [tool.uv.sources]
@@ -79,6 +83,10 @@ ekip-messaging = { workspace = true }
 ekip-workflows = { workspace = true }
 ekip-retrieval = { workspace = true }
 ekip-agents = { workspace = true }
+ekip-tools = { workspace = true }
+ekip-caching = { workspace = true }
+ekip-guardrails = { workspace = true }
+ekip-mcp-docs = { workspace = true }
 ekip-api = { workspace = true }
 
 [[tool.mypy.overrides]]
@@ -87,7 +95,7 @@ ignore_missing_imports = true # asyncpg ships no type stubs
 
 # ---- Architecture rules (ADR-001); enforced in CI via `uv run lint-imports` ----
 [tool.importlinter]
-root_packages = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search", "ekip_messaging", "ekip_workflows", "ekip_retrieval", "ekip_agents", "ekip_api"]
+root_packages = ["ekip_config", "ekip_observability", "ekip_contracts", "ekip_identity", "ekip_authorization", "ekip_ratelimit", "ekip_persistence", "ekip_ingestion", "ekip_llm_gateway", "ekip_search", "ekip_messaging", "ekip_workflows", "ekip_retrieval", "ekip_agents", "ekip_tools", "ekip_caching", "ekip_guardrails", "ekip_mcp_docs", "ekip_api"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]

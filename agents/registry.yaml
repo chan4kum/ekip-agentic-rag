@@ -1,0 +1,52 @@
+# Static agent registry (ADR-008). Version-controlled and validated at startup by
+# ekip_agents.registry.load_registry. An agent may only use the tools listed here; this file is
+# data about agents, nothing a model produces can add to it.
+version: 1
+agents:
+  - id: router
+    version: 1.0.0
+    domain: knowledge
+    description: Decides whether a question is about company documents or is out of scope.
+    capabilities: [intent.classify]
+    budget: {max_model_calls: 0, max_retrievals: 0}
+
+  - id: planner
+    version: 1.0.0
+    domain: knowledge
+    description: Splits a complex question into a few standalone search sub-questions.
+    capabilities: [question.plan]
+    budget: {max_model_calls: 1, max_retrievals: 0}
+
+  - id: retrieval
+    version: 1.0.0
+    domain: knowledge
+    description: Searches the documents the caller may read and merges the evidence.
+    capabilities: [documents.search]
+    required_permissions: [documents:read]
+    approved_tools: [search_documents]
+    budget: {max_retrievals: 4, max_model_calls: 0}
+
+  - id: analysis
+    version: 1.0.0
+    domain: knowledge
+    description: Writes a cited answer from the retrieved evidence only.
+    capabilities: [answer.compose, documents.compare]
+    required_permissions: [documents:read]
+    budget: {max_model_calls: 2, max_tokens: 20000}
+
+  - id: verifier
+    version: 1.0.0
+    domain: knowledge
+    description: Checks citations and that each claim is supported by a cited source.
+    capabilities: [citations.verify, claims.ground]
+    budget: {max_model_calls: 3}
+
+  - id: document-action
+    version: 1.0.0
+    domain: enterprise-action
+    description: Reads full documents through the tool gateway; any write needs human approval.
+    capabilities: [documents.read]
+    required_permissions: [documents:read]
+    approved_tools: [search_documents, get_document]
+    requires_approval: true
+    budget: {max_tool_calls: 4, max_model_calls: 2}

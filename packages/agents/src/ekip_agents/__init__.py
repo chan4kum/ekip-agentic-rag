@@ -1,3 +1,18 @@
+from ekip_agents.approval import (
+    NOT_APPROVED_MESSAGE,
+    ApprovalError,
+    ApprovalGate,
+    ApprovalRequest,
+    make_approval_node,
+    pending_approval,
+    resume_run,
+    start_run,
+    thread_config,
+)
+from ekip_agents.budget import Budget, BudgetExceeded, BudgetTracker, Resource
+from ekip_agents.checkpointing import CheckpointerKind, PostgresCheckpointer, create_checkpointer
+from ekip_agents.complexity import Complexity, ComplexityRouter, RuleBasedComplexityRouter
+from ekip_agents.evidence import merge_hits
 from ekip_agents.graph import (
     FAILURE_MESSAGE,
     NO_EVIDENCE_MESSAGE,
@@ -6,17 +21,51 @@ from ekip_agents.graph import (
     build_agent_graph,
     run_agent,
 )
+from ekip_agents.groundedness import (
+    GROUND_PROMPT_VERSION,
+    GroundednessChecker,
+    GroundednessResult,
+    LLMGroundednessChecker,
+    VerdictError,
+    parse_verdict,
+)
 from ekip_agents.nodes import (
     Node,
     make_answer_node,
     make_classify_node,
+    make_execute_node,
+    make_ground_node,
     make_load_history_node,
+    make_plan_node,
     make_retrieve_node,
     make_rewrite_node,
     make_save_turn_node,
     make_verify_node,
 )
-from ekip_agents.prompts import PROMPT_VERSION, SYSTEM_PROMPT, build_answer_messages, render_history
+from ekip_agents.plan import (
+    MAX_SUBTASKS_DEFAULT,
+    Plan,
+    PlanError,
+    SubTask,
+    parse_plan,
+    single_task_plan,
+)
+from ekip_agents.planner import PLAN_PROMPT_VERSION, LLMPlanner, QueryPlanner, plan_system_prompt
+from ekip_agents.prompts import (
+    PROMPT_VERSION,
+    SYSTEM_PROMPT,
+    build_answer_messages,
+    build_repair_messages,
+    render_history,
+    render_parts,
+)
+from ekip_agents.registry import (
+    AgentRegistry,
+    AgentSpec,
+    RegistryError,
+    load_registry,
+    parse_registry,
+)
 from ekip_agents.rewrite import (
     REWRITE_PROMPT_VERSION,
     LLMQueryRewriter,
@@ -27,6 +76,8 @@ from ekip_agents.router import QueryRouter, RuleBasedRouter
 from ekip_agents.state import (
     PROTECTED_KEYS,
     AgentState,
+    Approval,
+    Grounded,
     Route,
     RunStatus,
     StateViolation,
@@ -36,6 +87,54 @@ from ekip_agents.state import (
 )
 
 __all__ = [
+    "AgentRegistry",
+    "AgentSpec",
+    "RegistryError",
+    "load_registry",
+    "parse_registry",
+    "NOT_APPROVED_MESSAGE",
+    "ApprovalError",
+    "ApprovalGate",
+    "ApprovalRequest",
+    "make_approval_node",
+    "pending_approval",
+    "resume_run",
+    "start_run",
+    "thread_config",
+    "CheckpointerKind",
+    "PostgresCheckpointer",
+    "create_checkpointer",
+    "Approval",
+    "GROUND_PROMPT_VERSION",
+    "GroundednessChecker",
+    "GroundednessResult",
+    "LLMGroundednessChecker",
+    "VerdictError",
+    "parse_verdict",
+    "make_ground_node",
+    "build_repair_messages",
+    "render_parts",
+    "Grounded",
+    "merge_hits",
+    "make_execute_node",
+    "Complexity",
+    "ComplexityRouter",
+    "RuleBasedComplexityRouter",
+    "PLAN_PROMPT_VERSION",
+    "LLMPlanner",
+    "QueryPlanner",
+    "plan_system_prompt",
+    "make_plan_node",
+    "Budget",
+    "BudgetExceeded",
+    "BudgetTracker",
+    "Resource",
+    "MAX_SUBTASKS_DEFAULT",
+    "Plan",
+    "PlanError",
+    "SubTask",
+    "parse_plan",
+    "single_task_plan",
     "FAILURE_MESSAGE",
     "NO_EVIDENCE_MESSAGE",
     "OUT_OF_SCOPE_MESSAGE",

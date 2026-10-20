@@ -159,3 +159,38 @@ async def test_the_stub_remains_the_default() -> None:
     ) as c:
         r = await c.post(URL, json={"message": "torque"}, headers=IDP.auth())
     assert isinstance(r, httpx.Response) and "[stub answer" in r.text
+
+
+class GroundedJudge:
+    async def check(self, answer: str, context: Any) -> Any:
+        from ekip_agents import Grounded, GroundednessResult
+
+        return GroundednessResult(Grounded.GROUNDED)
+
+
+async def test_the_status_event_reports_groundedness_and_truncation() -> None:
+    from ekip_agents import Budget
+
+    graph = build_agent_graph(
+        router=RuleBasedRouter(),
+        retriever=FixedRetriever([HIT]),
+        model=FakeChatModel("Torque is 140 Nm [1]."),
+        grounding=GroundedJudge(),
+        budget=Budget(max_model_calls=1),  # answer uses the only call: no budget for the judge
+    )
+    events = await chat(make_app(AgentChatStreamer(graph)), "torque value?")
+    status = dict(events)["status"]
+    assert status["status"] == "answered"
+    assert status["grounded"] == "unchecked" and status["truncated"] == "model_calls"
+
+
+async def test_a_confirmed_answer_is_reported_grounded() -> None:
+    graph = build_agent_graph(
+        router=RuleBasedRouter(),
+        retriever=FixedRetriever([HIT]),
+        model=FakeChatModel("Torque is 140 Nm [1]."),
+        grounding=GroundedJudge(),
+    )
+    events = await chat(make_app(AgentChatStreamer(graph)), "torque value?")
+    assert dict(events)["status"]["grounded"] == "grounded"
+    assert dict(events)["status"]["truncated"] == ""

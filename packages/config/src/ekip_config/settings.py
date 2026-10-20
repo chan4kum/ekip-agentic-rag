@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     # "console" = one JSON line per span on stdout. (Named TRACING_*, not OTEL_*, to avoid
     # colliding with the OpenTelemetry SDK's own environment variables.)
     tracing_exporter: Literal["none", "console"] = "none"
+    # /metrics answers 404 unless a bearer value is configured (never exposed anonymously)
+    metrics_token: str | None = None
 
     # LLM: any OpenAI-compatible endpoint
     llm_provider: str = "groq"
@@ -36,6 +38,22 @@ class Settings(BaseSettings):
     chat_backend: Literal["stub", "agent"] = "stub"
     # Where conversation memory lives. "memory" is per process (lost on restart).
     conversation_store: Literal["memory", "postgres"] = "memory"
+
+    # Agent behaviour (only used when CHAT_BACKEND=agent). Multi-step answering is OFF until the
+    # agent evaluation shows it beating the single-search baseline on real questions (ADR-008).
+    agent_multistep: bool = False  # split complex questions into several searches
+    agent_groundedness: bool = False  # judge model confirms the sources support the claims
+    agent_max_subtasks: int = Field(default=4, ge=1, le=8)
+    # Per-question limits, enforced in code. 0 searches/calls would make the agent useless.
+    agent_max_steps: int = Field(default=12, ge=4, le=30)
+    agent_max_retrievals: int = Field(default=4, ge=1, le=16)
+    agent_max_model_calls: int = Field(default=10, ge=2, le=30)
+    agent_max_seconds: float = Field(default=60.0, gt=0, le=300.0)
+    # Where paused/long runs are saved. "none" = no checkpointing (the Phase 6 behaviour).
+    agent_checkpointer: Literal["none", "memory", "postgres"] = "none"
+    # Human approval before an answer is released. Needs a checkpointer; the chat API has no
+    # approval endpoint yet, so the app refuses to start with this on (see agent_wiring).
+    agent_approval: bool = False
 
     # Retrieval backend. "memory" = a small seeded demo corpus (no services needed: tests, smoke).
     # "opensearch" = the real index filled by the ingestion pipeline.
@@ -106,6 +124,12 @@ class Settings(BaseSettings):
                     raise ValueError(f"{name} must use https in production")
                 if (url.host or "") in {"localhost", "127.0.0.1"}:
                     raise ValueError(f"{name} points to localhost in production")
+        return self
+
+    @model_validator(mode="after")
+    def _approval_needs_a_checkpointer(self) -> Self:
+        if self.agent_approval and self.agent_checkpointer == "none":
+            raise ValueError("AGENT_APPROVAL needs AGENT_CHECKPOINTER=memory or postgres")
         return self
 
     @model_validator(mode="after")

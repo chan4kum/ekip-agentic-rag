@@ -66,9 +66,12 @@ boundaries in CI.
 | 4 | Incremental ingestion: change events, out-of-order handling, Kafka consumer with lanes and DLQ, Temporal workflows, deletes, ACL changes, reconciliation | Done |
 | 5 | Retrieval: ACL-pushdown hybrid search, optional reranker, cited context assembly, evaluation harness with an access-leak gate | Done |
 | 6 | Single-agent RAG: LangGraph agent, conversation memory, query rewriting, OpenAI-compatible model, `/api/v1/chat` wiring | Done |
-| 7 | Multi-step agents: planner, groundedness verifier, budgets, human approval, durable checkpoints | Planned |
-| 7A | **MCP tool gateway**: allowlists, OAuth, token exchange, resilience, audit | Planned |
-| 8+ | Caching, guardrails, LLMOps, observability, scale validation, Kubernetes | Planned |
+| 7 | Multi-step agents: planner, groundedness verifier, budgets, human approval, durable checkpoints, agent registry | Done |
+| 7A | **MCP tool gateway**: allowlists, delegation tokens (no JWT passthrough), approval-gated writes, resilience, audit | Done |
+| 8 | Caching: scope-bound response and retrieval caches, generation-based invalidation, single-flight | Done |
+| 9 | Guardrails and security hardening: PII/secret/injection policy engine, audit, attack suite against the real graph | Done |
+| 10-11 | LLMOps and observability: Prometheus metrics, OTel GenAI tracing, eval gates, canary helper, alerts, dashboards, load tool, runbooks | Done (tooling) |
+| 12 | Kubernetes, Terraform, AWS | Planned (owner-led, step by step) |
 
 ## Quick start
 
@@ -154,6 +157,17 @@ A LangGraph agent over a typed `AgentState`: `load_history`, `classify`, `rewrit
 - **Provider-agnostic model port:** one OpenAI-compatible adapter covers OpenAI, Groq, DeepSeek and vLLM; errors carry only a status code, never the response body or key.
 - **Bounded:** a step budget stops runaway loops, and every path ends in a final status with a safe user-facing message.
 - **Known gaps:** answers stream after verification rather than token by token; weak nearest neighbours need a relevance floor; groundedness is not yet checked.
+</details>
+
+<details>
+<summary><strong>Multi-step agents, tools, caching, guardrails, LLMOps (Phases 7-11)</strong></summary>
+
+- **Multi-step agents (7):** rule-based router, validated plan (no authority fields), parallel waves, code-enforced budgets, round-robin evidence merge, groundedness judge with one repair (judge outage reports `unchecked`, never `grounded`), `interrupt`-based approval, LangGraph checkpointer (in-memory or Postgres), static agent registry (`agents/registry.yaml`). Off by default: `AGENT_MULTISTEP`, `AGENT_GROUNDEDNESS`. Offline comparison: `scripts/eval_agent.py`.
+- **MCP tool gateway (7A):** versioned allowlist (`tools/registry.yaml`); pipeline of authz, schema validation, rate limit, write approval bound to exact arguments (approver must be a different person), circuit breaker, bulkhead, timeouts, audit and tracing. The user token is never forwarded: short-lived delegation tokens per tool and caller. Tool output is untrusted data; SSRF and SQL-injection tests included.
+- **Caching (8):** keys bind tenant, caller, groups, authorization version, corpus generation and prompt/model versions; every hit re-checks visibility and fails closed; deletes and ACL changes invalidate at once. No semantic cache until it passes the criteria in ADR-010.
+- **Guardrails (9):** deterministic policy engine (PII, secrets, prompt-leak, external-URL exfiltration, retrieved-text injection) behind a port; decorators wrap model and retriever; NeMo is an optional adapter. Guardrails are defence in depth, never the boundary.
+- **LLMOps (10-11):** low-cardinality Prometheus metrics (`/metrics` is 404 unless `METRICS_TOKEN` is set), OTel GenAI tracing with Langfuse over OTLP, `ops/` alerts, dashboards, model registry and eval gates (`scripts/eval_gate.py`), canary comparison, load tool, capacity model and runbooks.
+- **Not yet production-wired:** cache, guardrail and tool-gateway components are built and tested but not switched on in the API by default; Redis cache store and Postgres checkpointer need a live run with `RUN_INTEGRATION=1`.
 </details>
 
 ## Testing and quality

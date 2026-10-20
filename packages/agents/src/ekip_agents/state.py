@@ -20,6 +20,9 @@ from ekip_contracts.identity import SecurityContext
 from ekip_contracts.retrieval import RetrievedChunk
 from ekip_retrieval import CitationReport
 
+from ekip_agents.complexity import Complexity
+from ekip_agents.plan import Plan
+
 MAX_QUESTION_CHARS = 4000  # same limit as the chat API request
 
 
@@ -36,6 +39,19 @@ class RunStatus(StrEnum):
     FAILED = "failed"  # a dependency broke; no answer was produced
 
 
+class Grounded(StrEnum):
+    """Did a judge confirm that the cited sources support the claims? Reported to the client."""
+
+    GROUNDED = "grounded"  # every claim was found supported by a cited source
+    UNGROUNDED = "ungrounded"  # a claim was unsupported (the run ends without that answer)
+    UNCHECKED = "unchecked"  # no verdict (judge down, unparseable, or out of model-call budget)
+
+
+class Approval(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"  # also the result of any answer that is not an explicit approval
+
+
 class AgentState(TypedDict, total=False):
     """`total=False`: a node only has to supply the keys it changes."""
 
@@ -46,6 +62,10 @@ class AgentState(TypedDict, total=False):
     # produced by nodes
     route: Route
     history: list[Turn]  # earlier ANSWERED turns of this thread, oldest first
+    complexity: Complexity  # SIMPLE keeps the single-search path
+    plan: Plan  # the searches to run; SIMPLE questions get a one-task plan
+    task_hits: dict[str, list[str]]  # plan task id -> chunk ids it found (plain data)
+    truncated: str  # budget resource that cut the run short, if any
     search_query: str  # what retrieval searches for; defaults to `question`
     hits: list[RetrievedChunk]
     context: ContextBundle
@@ -53,6 +73,9 @@ class AgentState(TypedDict, total=False):
     citations: CitationReport
     status: RunStatus
     reason: str  # short code explaining a non-ANSWERED ending (for logs and metrics)
+    grounded: Grounded  # outcome of the groundedness check (unset until it ran)
+    approval: Approval  # the human decision, when an approval gate ran
+    model_calls: int  # model calls spent so far; the groundedness step respects the budget
     steps: int  # nodes executed so far; the graph stops at its budget (Phase 7)
 
 

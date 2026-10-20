@@ -12,6 +12,7 @@ from ekip_contracts.ratelimit import RateLimits
 from ekip_contracts.retrieval import Retriever
 from ekip_identity.jwks import CachedJwks, httpx_fetcher
 from ekip_identity.validator import JwtTokenValidator
+from ekip_observability import EkipMetrics, install_metrics
 from ekip_observability.logging import configure_logging, get_logger
 from ekip_observability.tracing import build_tracer_provider, scrub_url_attributes
 from ekip_ratelimit.redis_bucket import RedisRateLimiter
@@ -163,4 +164,6 @@ def create_app(
     app.include_router(ready.router)
     app.include_router(search.router)
     app.include_router(chat.router)
+    # Outermost: times the whole request; /metrics is 404 without a configured bearer value.
+    install_metrics(app, EkipMetrics(), token=settings.metrics_token)
     return app

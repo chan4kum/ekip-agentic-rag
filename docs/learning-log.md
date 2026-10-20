@@ -458,3 +458,21 @@ One adapter for OpenAI, Groq, DeepSeek and vLLM (`/chat/completions`). Errors ca
 
 ## Gate 6.11 - Live end-to-end validation
 Full Compose stack with `CHAT_BACKEND=agent`, `CONVERSATION_STORE=postgres`, real `gpt-4.1-mini` through the egress proxy, real Keycloak tokens through Traefik. Results: grounded questions answered with correct, cited-only sources; an unanswerable question ("what is the torque value?" when the corpus only describes the *verification procedure*) correctly ended as `insufficient_evidence` instead of a guess; small talk refused without searching; no token -> 401; answered turns stored per (tenant, user, conversation) in Postgres. **Findings:** (1) the migration must run before the API uses the Postgres store (it degrades to "no memory" otherwise, by design); (2) the smoke test's "stream is incremental" timing check only holds for the stub, because the agent shows an answer only after verifying it; (3) a follow-up that is itself retrievable ("and the hydraulics?") does not prove memory on its own, so a dedicated memory test with a non-retrievable follow-up is a Phase 7 evaluation item; (4) `LLM_API_KEY` passes to the container as an environment variable (dev only; use a secret store in real deployments).
+
+
+# Phases 7-11 - built in parallel lanes
+
+## Phase 7 - Multi-step agents
+Plan is validated data with no authority fields; budgets are enforced in code; the state counts model calls so the judge and repair respect the budget. Groundedness judge fails closed (`unchecked`, never `grounded`). Approval resumes only on the exact word `approve` from the same user. `AsyncPostgresSaver` needs a running event loop. Offline eval (47 docs): multi-step cited recall 0.95 vs 0.90 single search, wins on comparison, ties on multi-hop, 0 leaks. Gap: a dependent sub-question does not yet see the first result.
+
+## Phase 7A - MCP tool gateway
+Downstream calls carry a 30-second delegation token bound to one tool and caller, never the user's JWT. Write tools need a single-use approval bound to an argument digest. Gaps: per-call MCP clients (no pooling), audit failure does not block, production Redis replay guard and egress NetworkPolicy.
+
+## Phase 8 - Caching
+Cache is never required for correctness: Redis errors, junk values and visibility-checker failures all fall back to computing. Single-flight is per process only. Redis store not yet run against live Redis.
+
+## Phase 9 - Guardrails
+Findings carry fixed codes, never matched text. Injection screening is a heuristic, not a boundary; tests prove the real boundaries hold when it misses. Replies are checked whole, so token streaming is not covered.
+
+## Phases 10-11 - LLMOps tooling
+A gate with a missing measurement fails. Metrics labels never include tenant, user or question. `scripts/update_registry.py` must be run after any prompt version bump.
