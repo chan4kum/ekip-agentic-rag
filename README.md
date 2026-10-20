@@ -17,8 +17,10 @@ system survives a design review:
 - **Identity and authorization:** OIDC/JWT validation, tenant isolation, RBAC, document-level ACLs enforced *inside* the search queries.
 - **Safe incremental ingestion:** out-of-order events, replays, deletes and permission changes handled from state, not arrival order.
 - **Measurable retrieval quality:** an evaluation harness with a hard gate on access leaks.
-- **Bounded, verifiable agents:** typed state, step budgets, citation checks, fail-closed behaviour.
-- **Observability and operations:** structured logs, tracing, rate limits, hardened containers.
+- **Bounded, verifiable agents:** typed state, step and retrieval budgets, citation and groundedness checks, human approval, fail-closed behaviour.
+- **Governed tool use:** an MCP gateway with allowlists, delegation tokens and approval-gated writes.
+- **Defence in depth:** scope-bound caches, a guardrail layer that is never the security boundary, and an attack suite run against the real agent graph.
+- **Observability and operations:** structured logs, Prometheus metrics, OTel tracing, eval gates, alerts and runbooks.
 
 ## Architecture
 
@@ -26,15 +28,17 @@ system survives a design review:
 Client -> Reverse proxy -> FastAPI (OIDC/JWT, RBAC, rate limits, SSE)
                                |
                        LangGraph agent
-         load_history -> classify -> rewrite -> retrieve -> answer -> verify -> save_turn
-               |                         |                   |
-        Conversation store        Hybrid retrieval      Chat model port
-        (memory | Postgres)    (BM25 + kNN, ACL, RRF)  (OpenAI-compatible)
+  load_history -> classify -> rewrite -> [plan -> execute] | retrieve -> answer -> verify
+                                                   -> groundedness -> save_turn
+        |                         |                 |                  |
+  Conversation store      Hybrid retrieval    Chat model port    MCP tool gateway
+  (memory | Postgres)  (BM25 + kNN, ACL, RRF) (OpenAI-compatible) (allowlist, approval)
                                          |
               OpenSearch · PostgreSQL · Redis · Object storage
 
 Ingestion (independent): connectors -> Redpanda/Kafka -> Temporal -> parse -> chunk -> embed -> index
-Planned: MCP tool gateway · guardrails · OpenTelemetry/Langfuse · Kubernetes · GitOps
+Cross-cutting: caches (scope-bound) · guardrails · Prometheus/OpenTelemetry/Langfuse · eval gates
+Planned: Kubernetes · Terraform · AWS · GitOps
 ```
 
 The API, agent runtime, retrieval and ingestion workers scale independently. Dependencies point
@@ -53,6 +57,8 @@ boundaries in CI.
 | Chat model | Any OpenAI-compatible endpoint (OpenAI, Groq, DeepSeek, vLLM) |
 | Ingestion | Redpanda (Kafka API), Temporal, structure-aware chunking |
 | State | PostgreSQL (metadata, conversations), Redis (rate limits, caches, idempotency) |
+| Tools | MCP (`mcp` SDK), YAML allowlist registry, short-lived delegation tokens |
+| Observability | Prometheus, OpenTelemetry GenAI conventions, Langfuse over OTLP |
 | Quality | pytest, mypy (strict), ruff, import-linter, GitHub Actions |
 
 ## Roadmap
