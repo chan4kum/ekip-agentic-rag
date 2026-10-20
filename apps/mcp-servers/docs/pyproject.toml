@@ -1,0 +1,20 @@
+[project]
+name = "ekip-mcp-docs"
+version = "0.1.0"
+description = "Internal MCP server exposing document search tools"
+requires-python = ">=3.12"
+dependencies = [
+    "ekip-contracts",
+    "ekip-tools",
+    "ekip-retrieval",
+    "mcp>=2,<3",
+]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+ekip-tools = { workspace = true }
+ekip-retrieval = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

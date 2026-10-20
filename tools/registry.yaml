@@ -1,0 +1,79 @@
+# The reviewed allowlist of tools agents may call (ADR-009). Changing this file is a code review.
+# A tool absent here, or with `enabled: false`, does not exist for the gateway.
+# `required_roles`: the caller needs ANY of them. `backend` names a backend wired at startup.
+tools:
+  - name: search_documents
+    description: Search the caller's authorized enterprise documents.
+    risk: read
+    backend: mcp_docs
+    required_roles: [ekip-user]
+    idempotent: true
+    max_retries: 1
+    timeout_s: 15
+    max_output_chars: 8000
+    input_schema:
+      type: object
+      required: [query]
+      properties:
+        query: {type: string, minLength: 1, maxLength: 500}
+        limit: {type: integer, minimum: 1, maximum: 10}
+
+  - name: query_database
+    description: Look up rows in an approved, tenant-scoped reporting view.
+    risk: read
+    backend: db_views
+    required_roles: [ekip-admin]
+    idempotent: true
+    max_retries: 1
+    timeout_s: 10
+    max_output_chars: 6000
+    input_schema:
+      type: object
+      required: [view, key]
+      properties:
+        view: {type: string, enum: [open_orders, asset_status]}
+        key: {type: string, maxLength: 64, pattern: "[A-Za-z0-9_.:-]+"}
+        limit: {type: integer, minimum: 1, maximum: 50}
+
+  - name: web_search
+    description: Search the public web through the approved search API.
+    risk: read
+    backend: web_search
+    required_roles: [ekip-user]
+    idempotent: true
+    max_retries: 1
+    timeout_s: 10
+    max_output_chars: 4000
+    input_schema:
+      type: object
+      required: [query]
+      properties:
+        query: {type: string, minLength: 1, maxLength: 200}
+        count: {type: integer, minimum: 1, maximum: 10}
+
+  - name: create_ticket
+    description: Open a ticket in the tenant's ticketing project (needs human approval).
+    risk: write
+    backend: ticketing
+    required_roles: [ekip-user]
+    timeout_s: 15
+    max_output_chars: 500
+    rate_limit_cost: 5
+    input_schema:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string, minLength: 3, maxLength: 120}
+        description: {type: string, maxLength: 2000}
+        priority: {type: string, enum: [low, medium, high]}
+
+# Reviewed read-only views for query_database. Only these relations and columns are reachable.
+views:
+  - name: open_orders
+    relation: reporting.open_orders
+    columns: [order_id, customer_id, status, due_date]
+    filter_column: customer_id
+  - name: asset_status
+    relation: reporting.asset_status
+    columns: [asset_id, site, status, last_inspection]
+    filter_column: asset_id

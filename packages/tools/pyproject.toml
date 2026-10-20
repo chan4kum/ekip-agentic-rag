@@ -1,0 +1,20 @@
+[project]
+name = "ekip-tools"
+version = "0.1.0"
+description = "Tool registry and policy gateway (MCP) for agents"
+requires-python = ">=3.12"
+dependencies = [
+    "ekip-contracts",
+    "ekip-observability",
+    "httpx>=0.28.1",
+    "mcp>=2,<3",
+    "pyyaml>=6",
+]
+
+[tool.uv.sources]
+ekip-contracts = { workspace = true }
+ekip-observability = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
